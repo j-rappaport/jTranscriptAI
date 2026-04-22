@@ -40,8 +40,6 @@ export default function App() {
   const [loginError, setLoginError] = useState(null)
   const [loginLoading, setLoginLoading] = useState(false)
 
-
-
   useEffect(() => {
     if (authed) fetchJobs()
   }, [authed])
