@@ -220,7 +220,14 @@ def run_transcription(job_id: str, audio_path: str):
 
 FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
 
-app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")), name="assets")
+#app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")), name="assets")
+
+import subprocess
+
+@app.get("/debug-files")
+def debug_files():
+    result = subprocess.run(["find", "/app", "-type", "d"], capture_output=True, text=True)
+    return {"dirs": result.stdout.split("\n")}
 
 @app.get("/{full_path:path}", response_class=HTMLResponse)
 async def serve_frontend(full_path: str):
