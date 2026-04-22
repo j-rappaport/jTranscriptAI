@@ -218,9 +218,11 @@ def run_transcription(job_id: str, audio_path: str):
         db_update_status(job_id, "error", str(e))
 
 
-app.mount("/assets", StaticFiles(directory="../frontend/dist/assets"), name="assets")
+FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+
+app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")), name="assets")
 
 @app.get("/{full_path:path}", response_class=HTMLResponse)
 async def serve_frontend(full_path: str):
-    with open("../frontend/dist/index.html") as f:
+    with open(os.path.join(FRONTEND_DIST, "index.html")) as f:
         return f.read()
