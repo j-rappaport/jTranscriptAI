@@ -1,7 +1,25 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import ReviewPage from "./ReviewPage"
 
 const API = "http://localhost:8000"
+
+function formatDuration(ms) {
+  if (!ms) return "—"
+  const total = Math.floor(ms / 1000)
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  if (h > 0) return `${h}h ${m}m`
+  if (m > 0) return `${m}m ${s}s`
+  return `${s}s`
+}
+
+function formatDate(iso) {
+  if (!iso) return "—"
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "short", day: "numeric", year: "numeric"
+  })
+}
 
 export default function App() {
   const [file, setFile] = useState(null)
@@ -11,6 +29,21 @@ export default function App() {
   const [uploading, setUploading] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [reviewing, setReviewing] = useState(false)
+  const [jobs, setJobs] = useState([])
+
+  useEffect(() => {
+    fetchJobs()
+  }, [])
+
+  async function fetchJobs() {
+    try {
+      const res = await fetch(`${API}/jobs`)
+      const data = await res.json()
+      setJobs(data)
+    } catch (e) {
+      console.error("Failed to fetch jobs", e)
+    }
+  }
 
   function handleFile(f) {
     if (!f) return
@@ -48,6 +81,7 @@ export default function App() {
         if (data.status === "done" || data.status === "error") {
           clearInterval(iv)
           if (data.status === "error") setError(data.error)
+          fetchJobs()
         }
       } catch (e) {
         clearInterval(iv)
@@ -56,18 +90,29 @@ export default function App() {
     }, 3000)
   }
 
-  // Show review page when done
+  function openReview(id) {
+    setJobId(id)
+    setReviewing(true)
+  }
+
   if (reviewing && jobId) {
-    return <ReviewPage jobId={jobId} onBack={() => { setReviewing(false); setStatus(null); setJobId(null); setFile(null) }} />
+    return <ReviewPage jobId={jobId} onBack={() => {
+      setReviewing(false)
+      setStatus(null)
+      setJobId(null)
+      setFile(null)
+      fetchJobs()
+    }} />
   }
 
   const statusColor = { pending: "#185FA5", transcribing: "#185FA5", done: "#3B6D11", error: "#A32D2D" }
-  const statusBg    = { pending: "#E6F1FB", transcribing: "#E6F1FB", done: "#EAF3DE", error: "#FCEBEB" }
+  const statusBg = { pending: "#E6F1FB", transcribing: "#E6F1FB", done: "#EAF3DE", error: "#FCEBEB" }
 
   return (
-    <div style={{ fontFamily: "'Outfit', sans-serif", maxWidth: 560, margin: "48px auto", padding: "0 20px" }}>
+    <div style={{ fontFamily: "'Outfit', sans-serif", maxWidth: 660, margin: "48px auto", padding: "0 20px" }}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Mono:wght@400;500&family=Outfit:wght@300;400;500&display=swap" rel="stylesheet" />
 
+      {/* Header */}
       <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 32 }}>
         <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 28, letterSpacing: "-0.5px" }}>
           j<span style={{ color: "#185FA5" }}>Transcript</span>
@@ -77,7 +122,8 @@ export default function App() {
         </div>
       </div>
 
-      <div style={{ background: "white", border: "0.5px solid #e5e5e5", borderRadius: 12, padding: 24, marginBottom: 12 }}>
+      {/* Upload card */}
+      <div style={{ background: "white", border: "0.5px solid #e5e5e5", borderRadius: 12, padding: 24, marginBottom: 16 }}>
         <div
           onDragOver={e => { e.preventDefault(); setDragging(true) }}
           onDragLeave={() => setDragging(false)}
@@ -127,6 +173,52 @@ export default function App() {
           </div>
         )}
       </div>
+
+      {/* Recent jobs */}
+      {jobs.length > 0 && (
+        <div style={{ background: "white", border: "0.5px solid #e5e5e5", borderRadius: 12, overflow: "hidden" }}>
+          <div style={{ padding: "10px 16px", borderBottom: "0.5px solid #f0f0f0" }}>
+            <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.07em", textTransform: "uppercase", color: "#aaa" }}>
+              Recent jobs
+            </span>
+          </div>
+          {jobs.map((job, i) => (
+            <div key={job.id} style={{
+              display: "grid", gridTemplateColumns: "1fr 80px 80px auto",
+              gap: 12, padding: "10px 16px", alignItems: "center",
+              borderBottom: i < jobs.length - 1 ? "0.5px solid #f0f0f0" : "none",
+              background: i % 2 === 0 ? "white" : "#fafafa"
+            }}>
+              <span style={{ fontSize: 13, color: "#222", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {job.filename}
+              </span>
+              <span style={{ fontSize: 12, color: "#888" }}>{formatDuration(job.audio_duration_ms)}</span>
+              <span style={{ fontSize: 12, color: "#888" }}>{formatDate(job.created_at)}</span>
+              {job.status === "done"
+                ? <button
+                    onClick={() => openReview(job.id)}
+                    style={{
+                      fontSize: 12, padding: "4px 12px", borderRadius: 6,
+                      border: `0.5px solid ${job.audio_available ? "#185FA5" : "#ddd"}`,
+                      background: "white",
+                      color: job.audio_available ? "#185FA5" : "#aaa",
+                      cursor: "pointer"
+                    }}
+                  >
+                    {job.audio_available ? "Review" : "Review (no audio)"}
+                  </button>
+                : <span style={{
+                    fontSize: 11, padding: "3px 8px", borderRadius: 4, fontWeight: 500,
+                    background: job.status === "error" ? "#FCEBEB" : "#E6F1FB",
+                    color: job.status === "error" ? "#A32D2D" : "#185FA5"
+                  }}>
+                    {job.status}
+                  </span>
+              }
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

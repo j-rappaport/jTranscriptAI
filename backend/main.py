@@ -76,6 +76,16 @@ def db_get_job(job_id: str) -> dict:
             return dict(row) if row else None
 
 
+def delete_old_audio():
+    """Delete audio files from all previous jobs."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT audio_path FROM jobs WHERE audio_path IS NOT NULL")
+            rows = cur.fetchall()
+            for row in rows:
+                path = row[0]
+                if path and os.path.exists(path):
+                    os.remove(path)
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -87,6 +97,7 @@ def root():
 
 @app.post("/jobs")
 async def create_job(file: UploadFile = File(...)):
+    delete_old_audio()  # clean up previous audio
     job_id = str(uuid.uuid4())
     ext = os.path.splitext(file.filename)[1]
     audio_path = os.path.join(UPLOAD_DIR, f"{job_id}{ext}")
@@ -121,6 +132,30 @@ def get_audio(job_id: str):
         raise HTTPException(status_code=404, detail="Job not found")
     return FileResponse(job["audio_path"])
 
+def db_get_all_jobs() -> list:
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT id, status, filename, audio_duration_ms, created_at, audio_path FROM jobs ORDER BY created_at DESC")
+            rows = [dict(row) for row in cur.fetchall()]
+            # Add audio_available flag, don't expose the path itself
+            for row in rows:
+                row["audio_available"] = bool(row["audio_path"] and os.path.exists(row["audio_path"]))
+                del row["audio_path"]
+            return rows
+
+
+@app.get("/jobs")
+def get_all_jobs():
+    return db_get_all_jobs()
+
+
+@app.get("/jobs/{job_id}/audio-available")
+def audio_available(job_id: str):
+    job = db_get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    path = job["audio_path"]
+    return {"available": bool(path and os.path.exists(path))}
 
 # ---------------------------------------------------------------------------
 # Transcription

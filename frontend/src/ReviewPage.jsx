@@ -1,4 +1,4 @@
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 
 const API = "http://localhost:8000"
 const SNIPPET_LEN = 80
@@ -11,7 +11,7 @@ function msToTimecode(ms) {
   return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`
 }
 
-function UtteranceRow({ utt, index, onRenameOne, onRenameAll, audioRef }) {
+function UtteranceRow({ utt, index, onRenameOne, onRenameAll, audioRef, audioAvailable }) {
   const [expanded, setExpanded] = useState(false)
   const needsExpand = utt.text.length > SNIPPET_LEN
   const displayText = needsExpand && !expanded
@@ -34,12 +34,10 @@ function UtteranceRow({ utt, index, onRenameOne, onRenameAll, audioRef }) {
       alignItems: "start",
       background: index % 2 === 0 ? "white" : "#fafafa"
     }}>
-      {/* Timecode */}
       <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: "#888", paddingTop: 2 }}>
         {msToTimecode(utt.start_ms)}
       </span>
 
-      {/* Speaker */}
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         <span
           onClick={() => onRenameOne(index)}
@@ -57,7 +55,6 @@ function UtteranceRow({ utt, index, onRenameOne, onRenameAll, audioRef }) {
         </span>
       </div>
 
-      {/* Text */}
       <div>
         <span style={{ fontSize: 13, color: "#222", lineHeight: 1.6 }}>{displayText}</span>
         {needsExpand && (
@@ -70,16 +67,19 @@ function UtteranceRow({ utt, index, onRenameOne, onRenameAll, audioRef }) {
         )}
       </div>
 
-      {/* Play button */}
       <button
         onClick={playFrom}
+        disabled={!audioAvailable}
         style={{
           fontSize: 11, padding: "4px 10px", borderRadius: 6,
-          border: "0.5px solid #d1fae5", background: "#f0fdf4",
-          color: "#065f46", cursor: "pointer", whiteSpace: "nowrap"
+          border: `0.5px solid ${audioAvailable ? "#d1fae5" : "#eee"}`,
+          background: audioAvailable ? "#f0fdf4" : "#f9f9f9",
+          color: audioAvailable ? "#065f46" : "#bbb",
+          cursor: audioAvailable ? "pointer" : "not-allowed",
+          whiteSpace: "nowrap"
         }}
       >
-        ▶ Play
+        {audioAvailable ? "▶ Play" : "no audio"}
       </button>
     </div>
   )
@@ -88,19 +88,23 @@ function UtteranceRow({ utt, index, onRenameOne, onRenameAll, audioRef }) {
 export default function ReviewPage({ jobId, onBack }) {
   const [utterances, setUtterances] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [renameTarget, setRenameTarget] = useState(null) // {index, currentName, mode: "one"|"all"}
+  const [audioAvailable, setAudioAvailable] = useState(true)
+  const [renameTarget, setRenameTarget] = useState(null)
   const [renameValue, setRenameValue] = useState("")
   const audioRef = useRef(null)
 
-  // Fetch utterances on mount
-  useState(() => {
+  useEffect(() => {
     fetch(`${API}/jobs/${jobId}`)
       .then(r => r.json())
       .then(data => {
         setUtterances(data.utterances)
         setLoading(false)
       })
-  })
+
+    fetch(`${API}/jobs/${jobId}/audio-available`)
+      .then(r => r.json())
+      .then(data => setAudioAvailable(data.available))
+  }, [jobId])
 
   function openRenameOne(index) {
     setRenameTarget({ index, mode: "one" })
@@ -149,7 +153,6 @@ export default function ReviewPage({ jobId, onBack }) {
     <div style={{ fontFamily: "'Outfit', sans-serif", maxWidth: 900, margin: "48px auto", padding: "0 20px" }}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Mono:wght@400;500&family=Outfit:wght@300;400;500&display=swap" rel="stylesheet" />
 
-      {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
           <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 28, letterSpacing: "-0.5px" }}>
@@ -169,14 +172,14 @@ export default function ReviewPage({ jobId, onBack }) {
         </div>
       </div>
 
-      {/* Audio player */}
       <div style={{ background: "white", border: "0.5px solid #e5e5e5", borderRadius: 12, padding: "12px 16px", marginBottom: 12 }}>
-        <audio ref={audioRef} controls src={`${API}/jobs/${jobId}/audio`} style={{ width: "100%" }} />
+        {audioAvailable
+          ? <audio ref={audioRef} controls src={`${API}/jobs/${jobId}/audio`} style={{ width: "100%" }} />
+          : <div style={{ fontSize: 13, color: "#aaa", padding: "8px 0" }}>Audio not available — deleted when new job was uploaded</div>
+        }
       </div>
 
-      {/* Transcript */}
       <div style={{ background: "white", border: "0.5px solid #e5e5e5", borderRadius: 12, overflow: "hidden" }}>
-        {/* Column headers */}
         <div style={{
           display: "grid", gridTemplateColumns: "80px 160px 1fr auto",
           gap: 12, padding: "8px 16px",
@@ -197,11 +200,11 @@ export default function ReviewPage({ jobId, onBack }) {
             onRenameOne={openRenameOne}
             onRenameAll={openRenameAll}
             audioRef={audioRef}
+            audioAvailable={audioAvailable}
           />
         ))}
       </div>
 
-      {/* Rename modal */}
       {renameTarget && (
         <div style={{
           position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)",
