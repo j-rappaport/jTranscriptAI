@@ -8,6 +8,10 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
+from fastapi import Depends
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+import secrets
+import mimetypes
 
 load_dotenv()
 
@@ -19,6 +23,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+security = HTTPBasic()
+
+def require_auth(credentials: HTTPBasicCredentials = Depends(security)):
+    correct_username = secrets.compare_digest(
+        credentials.username, os.getenv("APP_USERNAME")
+    )
+    correct_password = secrets.compare_digest(
+        credentials.password, os.getenv("APP_PASSWORD")
+    )
+    if not (correct_username and correct_password):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid credentials",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
 
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -75,6 +96,17 @@ def db_get_job(job_id: str) -> dict:
             row = cur.fetchone()
             return dict(row) if row else None
 
+def db_get_all_jobs() -> list:
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT id, status, filename, audio_duration_ms, created_at, audio_path FROM jobs ORDER BY created_at DESC")
+            rows = [dict(row) for row in cur.fetchall()]
+            # Add audio_available flag, don't expose the path itself
+            for row in rows:
+                row["audio_available"] = bool(row["audio_path"] and os.path.exists(row["audio_path"]))
+                del row["audio_path"]
+            return rows
+
 
 def delete_old_audio():
     """Delete audio files from all previous jobs."""
@@ -96,7 +128,7 @@ def root():
 
 
 @app.post("/jobs")
-async def create_job(file: UploadFile = File(...)):
+async def create_job(file: UploadFile = File(...), user: str = Depends(require_auth)):
     delete_old_audio()  # clean up previous audio
     job_id = str(uuid.uuid4())
     ext = os.path.splitext(file.filename)[1]
@@ -118,7 +150,7 @@ async def create_job(file: UploadFile = File(...)):
 
 
 @app.get("/jobs/{job_id}")
-def get_job(job_id: str):
+def get_job(job_id: str, user: str = Depends(require_auth)):
     job = db_get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -130,27 +162,18 @@ def get_audio(job_id: str):
     job = db_get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    return FileResponse(job["audio_path"])
-
-def db_get_all_jobs() -> list:
-    with get_conn() as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("SELECT id, status, filename, audio_duration_ms, created_at, audio_path FROM jobs ORDER BY created_at DESC")
-            rows = [dict(row) for row in cur.fetchall()]
-            # Add audio_available flag, don't expose the path itself
-            for row in rows:
-                row["audio_available"] = bool(row["audio_path"] and os.path.exists(row["audio_path"]))
-                del row["audio_path"]
-            return rows
-
+    path = job["audio_path"]
+    mime_type, _ = mimetypes.guess_type(path)
+    print(f"Serving audio: {path}, mime: {mime_type}")
+    return FileResponse(path, media_type=mime_type or "audio/mpeg")
 
 @app.get("/jobs")
-def get_all_jobs():
+def get_all_jobs(user: str = Depends(require_auth)):
     return db_get_all_jobs()
 
 
 @app.get("/jobs/{job_id}/audio-available")
-def audio_available(job_id: str):
+def audio_available(job_id: str, user: str = Depends(require_auth)):
     job = db_get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")

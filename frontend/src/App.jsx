@@ -3,6 +3,8 @@ import ReviewPage from "./ReviewPage"
 
 const API = "http://localhost:8000"
 
+// ---- Outside App() ---- pure utility functions that don't need state ----
+
 function formatDuration(ms) {
   if (!ms) return "—"
   const total = Math.floor(ms / 1000)
@@ -21,6 +23,8 @@ function formatDate(iso) {
   })
 }
 
+// ---- App() ---- everything that touches state lives inside ----
+
 export default function App() {
   const [file, setFile] = useState(null)
   const [jobId, setJobId] = useState(null)
@@ -30,14 +34,49 @@ export default function App() {
   const [dragging, setDragging] = useState(false)
   const [reviewing, setReviewing] = useState(false)
   const [jobs, setJobs] = useState([])
+  const [authed, setAuthed] = useState(() => !!sessionStorage.getItem("auth"))
+  const [loginUser, setLoginUser] = useState(() => sessionStorage.getItem("user") || "")
+  const [loginPass, setLoginPass] = useState(() => sessionStorage.getItem("pass") || "")
+  const [loginError, setLoginError] = useState(null)
+  const [loginLoading, setLoginLoading] = useState(false)
+
+
 
   useEffect(() => {
-    fetchJobs()
-  }, [])
+    if (authed) fetchJobs()
+  }, [authed])
+
+  function authHeaders() {
+    return {
+      "Authorization": "Basic " + btoa(`${loginUser}:${loginPass}`)
+    }
+  }
+
+  async function handleLogin() {
+    setLoginLoading(true)
+    setLoginError(null)
+    try {
+      const res = await fetch(`${API}/jobs`, {
+        headers: authHeaders()
+      })
+      if (res.ok) {
+          sessionStorage.setItem("auth", "true")
+          sessionStorage.setItem("user", loginUser)
+          sessionStorage.setItem("pass", loginPass)
+          setAuthed(true)
+      } else {
+        setLoginError("Invalid username or password")
+      }
+    } catch (e) {
+      setLoginError("Could not connect to server")
+    } finally {
+      setLoginLoading(false)
+    }
+  }
 
   async function fetchJobs() {
     try {
-      const res = await fetch(`${API}/jobs`)
+      const res = await fetch(`${API}/jobs`, { headers: authHeaders() })
       const data = await res.json()
       setJobs(data)
     } catch (e) {
@@ -60,7 +99,11 @@ export default function App() {
     try {
       const formData = new FormData()
       formData.append("file", file)
-      const res = await fetch(`${API}/jobs`, { method: "POST", body: formData })
+      const res = await fetch(`${API}/jobs`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: formData
+      })
       const data = await res.json()
       setJobId(data.job_id)
       setStatus("pending")
@@ -75,7 +118,7 @@ export default function App() {
   function poll(id) {
     const iv = setInterval(async () => {
       try {
-        const res = await fetch(`${API}/jobs/${id}`)
+        const res = await fetch(`${API}/jobs/${id}`, { headers: authHeaders() })
         const data = await res.json()
         setStatus(data.status)
         if (data.status === "done" || data.status === "error") {
@@ -95,16 +138,83 @@ export default function App() {
     setReviewing(true)
   }
 
+  // ---- Render: review page ----
   if (reviewing && jobId) {
-    return <ReviewPage jobId={jobId} onBack={() => {
-      setReviewing(false)
-      setStatus(null)
-      setJobId(null)
-      setFile(null)
-      fetchJobs()
-    }} />
+    return <ReviewPage
+      jobId={jobId}
+      authHeaders={authHeaders}
+      onBack={() => {
+        setReviewing(false)
+        setStatus(null)
+        setJobId(null)
+        setFile(null)
+        fetchJobs()
+      }}
+    />
   }
 
+  // ---- Render: login page ----
+  if (!authed) {
+    return (
+      <div style={{ fontFamily: "'Outfit', sans-serif", maxWidth: 380, margin: "120px auto", padding: "0 20px" }}>
+        <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Mono:wght@400;500&family=Outfit:wght@300;400;500&display=swap" rel="stylesheet" />
+
+        <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 32 }}>
+          <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 28, letterSpacing: "-0.5px" }}>
+            j<span style={{ color: "#185FA5" }}>Transcript</span>
+          </div>
+          <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "#888", border: "0.5px solid #ddd", padding: "3px 8px", borderRadius: 4 }}>
+            Court Edition
+          </div>
+        </div>
+
+        <div style={{ background: "white", border: "0.5px solid #e5e5e5", borderRadius: 12, padding: 24 }}>
+          <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 20 }}>Sign in</div>
+
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 12, color: "#888", marginBottom: 6 }}>Username</div>
+            <input
+              value={loginUser}
+              onChange={e => setLoginUser(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleLogin()}
+              style={{ width: "100%", padding: "8px 12px", fontSize: 14, borderRadius: 8, border: "0.5px solid #ddd", boxSizing: "border-box" }}
+            />
+          </div>
+
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 12, color: "#888", marginBottom: 6 }}>Password</div>
+            <input
+              type="password"
+              value={loginPass}
+              onChange={e => setLoginPass(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleLogin()}
+              style={{ width: "100%", padding: "8px 12px", fontSize: 14, borderRadius: 8, border: "0.5px solid #ddd", boxSizing: "border-box" }}
+            />
+          </div>
+
+          {loginError && (
+            <div style={{ fontSize: 13, color: "#A32D2D", marginBottom: 12 }}>{loginError}</div>
+          )}
+
+          <button
+            onClick={handleLogin}
+            disabled={!loginUser || !loginPass || loginLoading}
+            style={{
+              width: "100%", padding: 13, borderRadius: 8, border: "none",
+              background: (!loginUser || !loginPass || loginLoading) ? "#f0f0f0" : "#185FA5",
+              color: (!loginUser || !loginPass || loginLoading) ? "#aaa" : "white",
+              fontFamily: "'Outfit', sans-serif", fontSize: 15, fontWeight: 500,
+              cursor: (!loginUser || !loginPass || loginLoading) ? "not-allowed" : "pointer"
+            }}
+          >
+            {loginLoading ? "Signing in…" : "Sign in"}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // ---- Render: main upload page ----
   const statusColor = { pending: "#185FA5", transcribing: "#185FA5", done: "#3B6D11", error: "#A32D2D" }
   const statusBg = { pending: "#E6F1FB", transcribing: "#E6F1FB", done: "#EAF3DE", error: "#FCEBEB" }
 
@@ -112,7 +222,6 @@ export default function App() {
     <div style={{ fontFamily: "'Outfit', sans-serif", maxWidth: 660, margin: "48px auto", padding: "0 20px" }}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Mono:wght@400;500&family=Outfit:wght@300;400;500&display=swap" rel="stylesheet" />
 
-      {/* Header */}
       <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 32 }}>
         <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 28, letterSpacing: "-0.5px" }}>
           j<span style={{ color: "#185FA5" }}>Transcript</span>
@@ -122,7 +231,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* Upload card */}
       <div style={{ background: "white", border: "0.5px solid #e5e5e5", borderRadius: 12, padding: 24, marginBottom: 16 }}>
         <div
           onDragOver={e => { e.preventDefault(); setDragging(true) }}
@@ -174,7 +282,6 @@ export default function App() {
         )}
       </div>
 
-      {/* Recent jobs */}
       {jobs.length > 0 && (
         <div style={{ background: "white", border: "0.5px solid #e5e5e5", borderRadius: 12, overflow: "hidden" }}>
           <div style={{ padding: "10px 16px", borderBottom: "0.5px solid #f0f0f0" }}>

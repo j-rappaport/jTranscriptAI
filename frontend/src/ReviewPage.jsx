@@ -85,7 +85,7 @@ function UtteranceRow({ utt, index, onRenameOne, onRenameAll, audioRef, audioAva
   )
 }
 
-export default function ReviewPage({ jobId, onBack }) {
+export default function ReviewPage({ jobId, onBack, authHeaders }) {
   const [utterances, setUtterances] = useState(null)
   const [loading, setLoading] = useState(true)
   const [audioAvailable, setAudioAvailable] = useState(true)
@@ -94,16 +94,17 @@ export default function ReviewPage({ jobId, onBack }) {
   const audioRef = useRef(null)
 
   useEffect(() => {
-    fetch(`${API}/jobs/${jobId}`)
+    fetch(`${API}/jobs/${jobId}`, { headers: authHeaders() })
       .then(r => r.json())
       .then(data => {
         setUtterances(data.utterances)
         setLoading(false)
       })
-
-    fetch(`${API}/jobs/${jobId}/audio-available`)
+  
+    fetch(`${API}/jobs/${jobId}/audio-available`, { headers: authHeaders() })
       .then(r => r.json())
       .then(data => setAudioAvailable(data.available))
+  
   }, [jobId])
 
   function openRenameOne(index) {
@@ -173,10 +174,15 @@ export default function ReviewPage({ jobId, onBack }) {
       </div>
 
       <div style={{ background: "white", border: "0.5px solid #e5e5e5", borderRadius: 12, padding: "12px 16px", marginBottom: 12 }}>
-        {audioAvailable
-          ? <audio ref={audioRef} controls src={`${API}/jobs/${jobId}/audio`} style={{ width: "100%" }} />
-          : <div style={{ fontSize: 13, color: "#aaa", padding: "8px 0" }}>Audio not available — deleted when new job was uploaded</div>
-        }
+{audioAvailable
+  ? <audio 
+      ref={audioRef} 
+      controls 
+      src={`${API}/jobs/${jobId}/audio`}
+      style={{ width: "100%" }} 
+    />
+  : <div style={{ fontSize: 13, color: "#aaa", padding: "8px 0" }}>Audio not available</div>
+}
       </div>
 
       <div style={{ background: "white", border: "0.5px solid #e5e5e5", borderRadius: 12, overflow: "hidden" }}>
