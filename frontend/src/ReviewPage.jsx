@@ -133,7 +133,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
 
   function saveTranscript() {
     const text = utterances
-      .map(u => `${msToTimecode(u.start_ms)}  ${u.speaker}:  ${u.text}`)
+      .map(u => `${u.speaker}:  ${u.text}`)
       .join("\n")
     const blob = new Blob([text], { type: "text/plain" })
     const url = URL.createObjectURL(blob)
