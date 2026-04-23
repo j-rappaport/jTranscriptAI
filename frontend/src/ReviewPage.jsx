@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react"
 
-const API = "http://localhost:8000"
+const API = "https://jtranscriptai-production.up.railway.app"
 const SNIPPET_LEN = 80
 
 function msToTimecode(ms) {

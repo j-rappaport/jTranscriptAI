@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react"
 import ReviewPage from "./ReviewPage"
 
-const API = "http://localhost:8000"
+const API = "https://jtranscriptai-production.up.railway.app"
 
 // ---- Outside App() ---- pure utility functions that don't need state ----
 
