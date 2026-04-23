@@ -5,7 +5,7 @@ __pycache__/
 .env
 
 # Uploads
-backend/uploads/
+uploads/
 
 # Node
 frontend/node_modules/
