@@ -78,7 +78,7 @@ export default function App() {
       const data = await res.json()
       setJobs(data)
     } catch (e) {
-      console.error("Failed to fetch jobs", e)
+      console.error("Failed to fetch the jobs", e)
     }
   }
 

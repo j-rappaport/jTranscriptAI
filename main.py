@@ -121,10 +121,6 @@ def delete_old_audio():
 # Routes
 # ---------------------------------------------------------------------------
 
-@app.get("/")
-def root():
-    return {"status": "ok"}
-
 
 @app.post("/jobs")
 async def create_job(file: UploadFile = File(...), user: str = Depends(require_auth)):
@@ -214,14 +210,18 @@ def run_transcription(job_id: str, audio_path: str):
     except Exception as e:
         db_update_status(job_id, "error", str(e))
 
-
 FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "frontend", "dist")
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")), name="assets")
 
+@app.get("/")
+async def serve_root():
+    with open(os.path.join(FRONTEND_DIST, "index.html")) as f:
+        return HTMLResponse(f.read())
+
 @app.get("/{full_path:path}", response_class=HTMLResponse)
 async def serve_frontend(full_path: str):
     with open(os.path.join(FRONTEND_DIST, "index.html")) as f:
-        return f.read()
+        return HTMLResponse(f.read())
