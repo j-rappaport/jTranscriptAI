@@ -95,6 +95,15 @@ def db_get_job(job_id: str) -> dict:
             row = cur.fetchone()
             return dict(row) if row else None
 
+def db_update_utterances(job_id: str, utterances: list):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE jobs SET utterances=%s WHERE id=%s",
+                (psycopg2.extras.Json(utterances), job_id)
+            )
+
+
 def db_get_all_jobs() -> list:
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -165,6 +174,15 @@ def get_audio(job_id: str):
 @app.get("/jobs")
 def get_all_jobs(user: str = Depends(require_auth)):
     return db_get_all_jobs()
+
+
+@app.put("/jobs/{job_id}/utterances")
+def update_utterances(job_id: str, body: dict, user: str = Depends(require_auth)):
+    job = db_get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    db_update_utterances(job_id, body["utterances"])
+    return {"ok": True}
 
 
 @app.get("/jobs/{job_id}/audio-available")

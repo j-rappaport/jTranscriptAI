@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from "react"
 
-const API = "https://jtranscriptai-production.up.railway.app"
-const SNIPPET_LEN = 80
+const API = import.meta.env.VITE_API_URL
 
 function msToTimecode(ms) {
   const total = Math.floor(ms / 1000)
@@ -12,12 +11,6 @@ function msToTimecode(ms) {
 }
 
 function UtteranceRow({ utt, index, onRenameOne, onRenameAll, audioRef, audioAvailable }) {
-  const [expanded, setExpanded] = useState(false)
-  const needsExpand = utt.text.length > SNIPPET_LEN
-  const displayText = needsExpand && !expanded
-    ? utt.text.slice(0, SNIPPET_LEN) + "…"
-    : utt.text
-
   function playFrom() {
     if (!audioRef.current) return
     audioRef.current.currentTime = utt.start_ms / 1000
@@ -56,15 +49,7 @@ function UtteranceRow({ utt, index, onRenameOne, onRenameAll, audioRef, audioAva
       </div>
 
       <div>
-        <span style={{ fontSize: 13, color: "#222", lineHeight: 1.6 }}>{displayText}</span>
-        {needsExpand && (
-          <span
-            onClick={() => setExpanded(!expanded)}
-            style={{ fontSize: 11, color: "#185FA5", cursor: "pointer", marginLeft: 8 }}
-          >
-            {expanded ? "less" : "more"}
-          </span>
-        )}
+        <span style={{ fontSize: 13, color: "#222", lineHeight: 1.6 }}>{utt.text}</span>
       </div>
 
       <button
@@ -129,6 +114,11 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     })
     setUtterances(updated)
     setRenameTarget(null)
+    fetch(`${API}/jobs/${jobId}/utterances`, {
+      method: "PUT",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ utterances: updated }),
+    })
   }
 
   function saveTranscript() {
@@ -151,7 +141,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   )
 
   return (
-    <div style={{ fontFamily: "'Outfit', sans-serif", maxWidth: 900, margin: "48px auto", padding: "0 20px" }}>
+    <div style={{ fontFamily: "'Outfit', sans-serif", maxWidth: 900, margin: "48px auto", padding: "0 20px", textAlign: "left" }}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Mono:wght@400;500&family=Outfit:wght@300;400;500&display=swap" rel="stylesheet" />
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
