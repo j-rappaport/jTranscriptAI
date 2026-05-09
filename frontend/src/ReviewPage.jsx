@@ -40,7 +40,13 @@ function InsertMenu({ onInsert, onClose }) {
   )
 }
 
-function BlockRow({ block, index, onRenameOne, onRenameAll, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete }) {
+function BlockRow({ block, index, onRenameOne, onRenameAll, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete, onUpdateText }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState("")
+
+  function startEdit() { setDraft(block.text); setEditing(true) }
+  function cancelEdit() { setEditing(false) }
+  function confirmEdit() { onUpdateText(index, draft); setEditing(false) }
   const rowStyle = {
     display: "grid",
     gridTemplateColumns: "80px 160px 1fr auto",
@@ -125,7 +131,31 @@ function BlockRow({ block, index, onRenameOne, onRenameAll, audioRef, audioAvail
       </div>
 
       <div>
-        <span style={{ fontSize: 13, color: "#222", lineHeight: 1.6 }}>{block.text}</span>
+        {editing ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <textarea
+              autoFocus
+              value={draft}
+              onChange={e => setDraft(e.target.value)}
+              onKeyDown={e => { if (e.key === "Escape") cancelEdit() }}
+              style={{
+                width: "100%", fontSize: 13, lineHeight: 1.6, fontFamily: "inherit",
+                padding: "4px 8px", borderRadius: 6, border: "0.5px solid #185FA5",
+                resize: "vertical", boxSizing: "border-box", minHeight: 60
+              }}
+            />
+            <div style={{ display: "flex", gap: 6 }}>
+              <button onClick={confirmEdit} style={{ fontSize: 12, padding: "3px 10px", borderRadius: 6, border: "none", background: "#185FA5", color: "white", cursor: "pointer" }}>✓ Save</button>
+              <button onClick={cancelEdit} style={{ fontSize: 12, padding: "3px 10px", borderRadius: 6, border: "0.5px solid #ddd", background: "white", color: "#888", cursor: "pointer" }}>Cancel</button>
+            </div>
+          </div>
+        ) : (
+          <span
+            onClick={startEdit}
+            title="Click to edit"
+            style={{ fontSize: 13, color: "#222", lineHeight: 1.6, cursor: "text" }}
+          >{block.text}</span>
+        )}
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end" }}>
@@ -198,6 +228,16 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     })
     setBlocks(updated)
     setRenameTarget(null)
+    fetch(`${API}/jobs/${jobId}/blocks`, {
+      method: "PUT",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ blocks: updated }),
+    })
+  }
+
+  function updateText(index, newText) {
+    const updated = blocks.map((b, i) => i === index ? { ...b, text: newText } : b)
+    setBlocks(updated)
     fetch(`${API}/jobs/${jobId}/blocks`, {
       method: "PUT",
       headers: { ...authHeaders(), "Content-Type": "application/json" },
@@ -318,6 +358,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
             onCloseInsertMenu={() => setInsertMenuIndex(null)}
             onInsert={type => insertBlock(i, type)}
             onDelete={() => deleteBlock(i)}
+            onUpdateText={updateText}
           />
         ))}
       </div>
