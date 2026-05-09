@@ -75,7 +75,7 @@ def db_update_status(job_id: str, status: str, error: str = None):
             )
 
 
-def db_update_done(job_id: str, utterances: list, duration_ms: int):
+def db_update_done(job_id: str, blocks: list, duration_ms: int):
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -84,7 +84,7 @@ def db_update_done(job_id: str, utterances: list, duration_ms: int):
                 SET status='done', utterances=%s, audio_duration_ms=%s
                 WHERE id=%s
                 """,
-                (psycopg2.extras.Json(utterances), duration_ms, job_id)
+                (psycopg2.extras.Json(blocks), duration_ms, job_id)
             )
 
 
@@ -95,12 +95,12 @@ def db_get_job(job_id: str) -> dict:
             row = cur.fetchone()
             return dict(row) if row else None
 
-def db_update_utterances(job_id: str, utterances: list):
+def db_update_blocks(job_id: str, blocks: list):
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE jobs SET utterances=%s WHERE id=%s",
-                (psycopg2.extras.Json(utterances), job_id)
+                (psycopg2.extras.Json(blocks), job_id)
             )
 
 
@@ -158,6 +158,7 @@ def get_job(job_id: str, user: str = Depends(require_auth)):
     job = db_get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    job["blocks"] = job.pop("utterances")
     return job
 
 
@@ -176,12 +177,12 @@ def get_all_jobs(user: str = Depends(require_auth)):
     return db_get_all_jobs()
 
 
-@app.put("/jobs/{job_id}/utterances")
-def update_utterances(job_id: str, body: dict, user: str = Depends(require_auth)):
+@app.put("/jobs/{job_id}/blocks")
+def update_blocks(job_id: str, body: dict, user: str = Depends(require_auth)):
     job = db_get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    db_update_utterances(job_id, body["utterances"])
+    db_update_blocks(job_id, body["blocks"])
     return {"ok": True}
 
 
@@ -212,8 +213,9 @@ def run_transcription(job_id: str, audio_path: str):
         if transcript.status == aai.TranscriptStatus.error:
             raise RuntimeError(transcript.error)
 
-        utterances = [
+        blocks = [
             {
+                "type": "utterance",
                 "speaker": f"SPEAKER {u.speaker}",
                 "text": u.text,
                 "start_ms": u.start,
@@ -223,7 +225,7 @@ def run_transcription(job_id: str, audio_path: str):
         ]
 
         duration_ms = int(transcript.audio_duration * 1000)
-        db_update_done(job_id, utterances, duration_ms)
+        db_update_done(job_id, blocks, duration_ms)
 
     except Exception as e:
         db_update_status(job_id, "error", str(e))

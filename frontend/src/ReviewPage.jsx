@@ -10,25 +10,101 @@ function msToTimecode(ms) {
   return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`
 }
 
-function UtteranceRow({ utt, index, onRenameOne, onRenameAll, audioRef, audioAvailable }) {
+function InsertMenu({ onInsert, onClose }) {
+  return (
+    <>
+      <div style={{ position: "fixed", inset: 0, zIndex: 9 }} onClick={onClose} />
+      <div style={{
+        position: "absolute", right: 0, top: "calc(100% + 4px)", zIndex: 10,
+        background: "white", border: "0.5px solid #ddd", borderRadius: 8,
+        boxShadow: "0 4px 12px rgba(0,0,0,0.08)", padding: "4px 0", minWidth: 140
+      }}>
+        <button
+          onClick={() => onInsert("utterance")}
+          style={{ display: "block", width: "100%", textAlign: "left", padding: "7px 14px", fontSize: 12, background: "none", border: "none", cursor: "pointer", color: "#222" }}
+          onMouseEnter={e => e.target.style.background = "#f5f5f5"}
+          onMouseLeave={e => e.target.style.background = "none"}
+        >
+          Utterance
+        </button>
+        <button
+          onClick={() => onInsert("qa_toggle")}
+          style={{ display: "block", width: "100%", textAlign: "left", padding: "7px 14px", fontSize: 12, background: "none", border: "none", cursor: "pointer", color: "#222" }}
+          onMouseEnter={e => e.target.style.background = "#f5f5f5"}
+          onMouseLeave={e => e.target.style.background = "none"}
+        >
+          QA Toggle
+        </button>
+      </div>
+    </>
+  )
+}
+
+function BlockRow({ block, index, onRenameOne, onRenameAll, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete }) {
+  const rowStyle = {
+    display: "grid",
+    gridTemplateColumns: "80px 160px 1fr auto",
+    gap: 12,
+    padding: "10px 16px",
+    borderBottom: "0.5px solid #f0f0f0",
+    alignItems: "start",
+    background: index % 2 === 0 ? "white" : "#fafafa"
+  }
+
+  const iconBtnStyle = {
+    fontSize: 13, width: 26, height: 26, borderRadius: 6, cursor: "pointer",
+    display: "flex", alignItems: "center", justifyContent: "center", padding: 0
+  }
+
+  const insertBtn = (
+    <div style={{ position: "relative" }}>
+      <button
+        onClick={e => { e.stopPropagation(); insertMenuOpen ? onCloseInsertMenu() : onOpenInsertMenu() }}
+        title="Insert below"
+        style={{ ...iconBtnStyle, border: "0.5px solid #e0e0e0", background: "white", color: "#bbb" }}
+      >
+        ⊕
+      </button>
+      {insertMenuOpen && <InsertMenu onInsert={onInsert} onClose={onCloseInsertMenu} />}
+    </div>
+  )
+
+  const deleteBtn = (
+    <button
+      onClick={onDelete}
+      title="Delete block"
+      style={{ ...iconBtnStyle, border: "0.5px solid #fecaca", background: "white", color: "#f87171" }}
+    >
+      ✕
+    </button>
+  )
+
+  if (block.type === "qa_toggle") {
+    return (
+      <div style={rowStyle}>
+        <span />
+        <span style={{ fontSize: 12, fontWeight: 500, color: "#888", fontStyle: "italic" }}>
+          QA Toggle
+        </span>
+        <span />
+        <div style={{ display: "flex", gap: 4 }}>
+          {insertBtn}
+          {deleteBtn}
+        </div>
+      </div>
+    )
+  }
+
   function playFrom() {
     if (!audioRef.current) return
-    audioRef.current.currentTime = utt.start_ms / 1000
+    audioRef.current.currentTime = block.start_ms / 1000
     audioRef.current.play()
   }
 
   return (
-    <div style={{
-      display: "grid",
-      gridTemplateColumns: "80px 160px 1fr auto",
-      gap: 12,
-      padding: "10px 16px",
-      borderBottom: "0.5px solid #f0f0f0",
-      alignItems: "start",
-      background: index % 2 === 0 ? "white" : "#fafafa"
-    }}>
+    <div style={rowStyle}>
       <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: "#888", paddingTop: 2 }}>
-        {msToTimecode(utt.start_ms)}
+        {msToTimecode(block.start_ms)}
       </span>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -37,10 +113,10 @@ function UtteranceRow({ utt, index, onRenameOne, onRenameAll, audioRef, audioAva
           style={{ fontSize: 12, fontWeight: 500, color: "#185FA5", cursor: "pointer", lineHeight: 1.3 }}
           title="Rename this utterance"
         >
-          {utt.speaker}
+          {block.speaker}
         </span>
         <span
-          onClick={() => onRenameAll(utt.speaker)}
+          onClick={() => onRenameAll(block.speaker)}
           style={{ fontSize: 11, color: "#aaa", cursor: "pointer" }}
           title="Rename all utterances with this speaker"
         >
@@ -49,52 +125,59 @@ function UtteranceRow({ utt, index, onRenameOne, onRenameAll, audioRef, audioAva
       </div>
 
       <div>
-        <span style={{ fontSize: 13, color: "#222", lineHeight: 1.6 }}>{utt.text}</span>
+        <span style={{ fontSize: 13, color: "#222", lineHeight: 1.6 }}>{block.text}</span>
       </div>
 
-      <button
-        onClick={playFrom}
-        disabled={!audioAvailable}
-        style={{
-          fontSize: 11, padding: "4px 10px", borderRadius: 6,
-          border: `0.5px solid ${audioAvailable ? "#d1fae5" : "#eee"}`,
-          background: audioAvailable ? "#f0fdf4" : "#f9f9f9",
-          color: audioAvailable ? "#065f46" : "#bbb",
-          cursor: audioAvailable ? "pointer" : "not-allowed",
-          whiteSpace: "nowrap"
-        }}
-      >
-        {audioAvailable ? "▶ Play" : "no audio"}
-      </button>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end" }}>
+        <button
+          onClick={playFrom}
+          disabled={!audioAvailable}
+          style={{
+            fontSize: 11, padding: "4px 10px", borderRadius: 6,
+            border: `0.5px solid ${audioAvailable ? "#d1fae5" : "#eee"}`,
+            background: audioAvailable ? "#f0fdf4" : "#f9f9f9",
+            color: audioAvailable ? "#065f46" : "#bbb",
+            cursor: audioAvailable ? "pointer" : "not-allowed",
+            whiteSpace: "nowrap"
+          }}
+        >
+          {audioAvailable ? "▶ Play" : "no audio"}
+        </button>
+        <div style={{ display: "flex", gap: 4 }}>
+          {insertBtn}
+          {deleteBtn}
+        </div>
+      </div>
     </div>
   )
 }
 
 export default function ReviewPage({ jobId, onBack, authHeaders }) {
-  const [utterances, setUtterances] = useState(null)
+  const [blocks, setBlocks] = useState(null)
   const [loading, setLoading] = useState(true)
   const [audioAvailable, setAudioAvailable] = useState(true)
   const [renameTarget, setRenameTarget] = useState(null)
   const [renameValue, setRenameValue] = useState("")
+  const [insertMenuIndex, setInsertMenuIndex] = useState(null)
   const audioRef = useRef(null)
 
   useEffect(() => {
     fetch(`${API}/jobs/${jobId}`, { headers: authHeaders() })
       .then(r => r.json())
       .then(data => {
-        setUtterances(data.utterances)
+        setBlocks(data.blocks.map(b => b.type ? b : { ...b, type: "utterance" }))
         setLoading(false)
       })
-  
+
     fetch(`${API}/jobs/${jobId}/audio-available`, { headers: authHeaders() })
       .then(r => r.json())
       .then(data => setAudioAvailable(data.available))
-  
+
   }, [jobId])
 
   function openRenameOne(index) {
     setRenameTarget({ index, mode: "one" })
-    setRenameValue(utterances[index].speaker)
+    setRenameValue(blocks[index].speaker)
   }
 
   function openRenameAll(speaker) {
@@ -105,25 +188,58 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   function applyRename() {
     const newName = renameValue.trim().toUpperCase()
     if (!newName) return
-    const updated = utterances.map((u, i) => {
+    const updated = blocks.map((b, i) => {
+      if (b.type !== "utterance") return b
       if (renameTarget.mode === "one" && i === renameTarget.index)
-        return { ...u, speaker: newName }
-      if (renameTarget.mode === "all" && u.speaker === renameTarget.speaker)
-        return { ...u, speaker: newName }
-      return u
+        return { ...b, speaker: newName }
+      if (renameTarget.mode === "all" && b.speaker === renameTarget.speaker)
+        return { ...b, speaker: newName }
+      return b
     })
-    setUtterances(updated)
+    setBlocks(updated)
     setRenameTarget(null)
-    fetch(`${API}/jobs/${jobId}/utterances`, {
+    fetch(`${API}/jobs/${jobId}/blocks`, {
       method: "PUT",
       headers: { ...authHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify({ utterances: updated }),
+      body: JSON.stringify({ blocks: updated }),
+    })
+  }
+
+  function deleteBlock(index) {
+    const updated = blocks.filter((_, i) => i !== index)
+    setBlocks(updated)
+    fetch(`${API}/jobs/${jobId}/blocks`, {
+      method: "PUT",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ blocks: updated }),
+    })
+  }
+
+  function insertBlock(afterIndex, type) {
+    let newBlock
+    if (type === "qa_toggle") {
+      newBlock = { type: "qa_toggle" }
+    } else {
+      newBlock = { ...blocks[afterIndex], type: "utterance" }
+    }
+    const updated = [
+      ...blocks.slice(0, afterIndex + 1),
+      newBlock,
+      ...blocks.slice(afterIndex + 1)
+    ]
+    setBlocks(updated)
+    setInsertMenuIndex(null)
+    fetch(`${API}/jobs/${jobId}/blocks`, {
+      method: "PUT",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ blocks: updated }),
     })
   }
 
   function saveTranscript() {
-    const text = utterances
-      .map(u => `${u.speaker}:  ${u.text}`)
+    const text = blocks
+      .filter(b => b.type === "utterance")
+      .map(b => `${b.speaker}:  ${b.text}`)
       .join("\n")
     const blob = new Blob([text], { type: "text/plain" })
     const url = URL.createObjectURL(blob)
@@ -165,11 +281,11 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
 
       <div style={{ background: "white", border: "0.5px solid #e5e5e5", borderRadius: 12, padding: "12px 16px", marginBottom: 12 }}>
 {audioAvailable
-  ? <audio 
-      ref={audioRef} 
-      controls 
+  ? <audio
+      ref={audioRef}
+      controls
       src={`${API}/jobs/${jobId}/audio`}
-      style={{ width: "100%" }} 
+      style={{ width: "100%" }}
     />
   : <div style={{ fontSize: 13, color: "#aaa", padding: "8px 0" }}>Audio not available</div>
 }
@@ -188,15 +304,20 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
           <span></span>
         </div>
 
-        {utterances.map((utt, i) => (
-          <UtteranceRow
+        {blocks.map((block, i) => (
+          <BlockRow
             key={i}
             index={i}
-            utt={utt}
+            block={block}
             onRenameOne={openRenameOne}
             onRenameAll={openRenameAll}
             audioRef={audioRef}
             audioAvailable={audioAvailable}
+            insertMenuOpen={insertMenuIndex === i}
+            onOpenInsertMenu={() => setInsertMenuIndex(i)}
+            onCloseInsertMenu={() => setInsertMenuIndex(null)}
+            onInsert={type => insertBlock(i, type)}
+            onDelete={() => deleteBlock(i)}
           />
         ))}
       </div>
