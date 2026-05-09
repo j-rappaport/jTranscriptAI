@@ -231,6 +231,26 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   const audioRef = useRef(null)
 
   useEffect(() => {
+    function handleKey(e) {
+      const tag = document.activeElement?.tagName
+      if (tag === "INPUT" || tag === "TEXTAREA") return
+      if (!audioRef.current) return
+      if (e.key === " ") {
+        e.preventDefault()
+        audioRef.current.paused ? audioRef.current.play() : audioRef.current.pause()
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault()
+        audioRef.current.currentTime = Math.min(audioRef.current.duration, audioRef.current.currentTime + 4)
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault()
+        audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - 4)
+      }
+    }
+    document.addEventListener("keydown", handleKey)
+    return () => document.removeEventListener("keydown", handleKey)
+  }, [])
+
+  useEffect(() => {
     fetch(`${API}/jobs/${jobId}`, { headers: authHeaders() })
       .then(r => r.json())
       .then(data => {
@@ -368,7 +388,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
         </div>
       </div>
 
-      <div style={{ background: "white", border: "0.5px solid #e5e5e5", borderRadius: 12, padding: "12px 16px", marginBottom: 12 }}>
+      <div style={{ position: "sticky", top: 0, zIndex: 50, background: "white", border: "0.5px solid #e5e5e5", borderRadius: 12, padding: "12px 16px", marginBottom: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
 {audioAvailable
   ? <audio
       ref={audioRef}
