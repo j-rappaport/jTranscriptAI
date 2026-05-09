@@ -2,6 +2,15 @@ import { useState, useRef, useEffect } from "react"
 
 const API = import.meta.env.VITE_API_URL
 
+const ABBREVS = /\b(Mr|Mrs|Ms|Dr|Jr|Sr|vs|etc|No|St)\.  /gi
+
+function normalizeSentenceSpacing(text) {
+  return text
+    .replace(/([.?])\s*/g, "$1  ")
+    .replace(ABBREVS, "$1. ")
+    .trimEnd()
+}
+
 function msToTimecode(ms) {
   const total = Math.floor(ms / 1000)
   const h = Math.floor(total / 3600)
@@ -315,7 +324,8 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
       const role = roles[i]
       if (b.type !== "utterance") continue
       if (role === "Q" && prevRole === "") lines.push(`BY ${b.speaker}:`)
-      lines.push(role ? `${role}:  ${b.text}` : `${b.speaker}:  ${b.text}`)
+      const text = normalizeSentenceSpacing(b.text)
+      lines.push(role ? `${role}:  ${text}` : `${b.speaker}:  ${text}`)
       prevRole = role
     }
     const blob = new Blob([lines.join("\n")], { type: "text/plain" })
