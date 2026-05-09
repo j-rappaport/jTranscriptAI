@@ -40,21 +40,52 @@ function InsertMenu({ onInsert, onClose }) {
   )
 }
 
-function BlockRow({ block, index, onRenameOne, onRenameAll, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete, onUpdateText }) {
+const ROLE_STYLE = {
+  Q: { color: "#185FA5", fontWeight: 600 },
+  A: { color: "#dc2626", fontWeight: 600 },
+}
+
+function computeBlockDisplay(blocks) {
+  let qaOn = false, next = "Q", sectionIdx = 0
+  const roles = [], toggleStates = [], sectionIndices = []
+  for (const b of blocks) {
+    if (b.type === "qa_toggle") {
+      qaOn = !qaOn
+      if (qaOn) next = "Q"
+      roles.push(""); toggleStates.push(qaOn); sectionIndices.push(0)
+      sectionIdx = 1
+    } else {
+      if (b.type === "utterance" && qaOn) {
+        const r = next; next = r === "Q" ? "A" : "Q"; roles.push(r)
+      } else {
+        roles.push("")
+      }
+      toggleStates.push(null); sectionIndices.push(sectionIdx++)
+    }
+  }
+  return { roles, toggleStates, sectionIndices }
+}
+
+function BlockRow({ block, index, role, toggleState, sectionIndex, onRenameOne, onRenameAll, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete, onUpdateText }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState("")
 
   function startEdit() { setDraft(block.text); setEditing(true) }
   function cancelEdit() { setEditing(false) }
   function confirmEdit() { onUpdateText(index, draft); setEditing(false) }
+  const isInQA = block.type === "qa_toggle" ? toggleState : !!role
+  const rowBg = isInQA
+    ? (sectionIndex % 2 === 0 ? "#dcfce7" : "#f0fdf4")
+    : (sectionIndex % 2 === 0 ? "white" : "#fafafa")
+
   const rowStyle = {
     display: "grid",
-    gridTemplateColumns: "80px 160px 1fr auto",
+    gridTemplateColumns: "80px 160px 40px 1fr auto",
     gap: 12,
     padding: "10px 16px",
     borderBottom: "0.5px solid #f0f0f0",
     alignItems: "start",
-    background: index % 2 === 0 ? "white" : "#fafafa"
+    background: rowBg
   }
 
   const iconBtnStyle = {
@@ -86,12 +117,20 @@ function BlockRow({ block, index, onRenameOne, onRenameAll, audioRef, audioAvail
   )
 
   if (block.type === "qa_toggle") {
+    const onColor = "#16a34a", offColor = "#dc2626"
+    const color = toggleState ? onColor : offColor
+    const bg = toggleState ? "#f0fdf4" : "#fef2f2"
+    const border = toggleState ? "#bbf7d0" : "#fecaca"
     return (
       <div style={rowStyle}>
         <span />
-        <span style={{ fontSize: 12, fontWeight: 500, color: "#888", fontStyle: "italic" }}>
-          QA Toggle
+        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 12, fontWeight: 500, color: "#888", fontStyle: "italic" }}>QA Toggle</span>
+          <span style={{ fontSize: 11, fontWeight: 600, color, background: bg, border: `0.5px solid ${border}`, borderRadius: 4, padding: "1px 6px" }}>
+            {toggleState ? "ON" : "OFF"}
+          </span>
         </span>
+        <span />
         <span />
         <div style={{ display: "flex", gap: 4 }}>
           {insertBtn}
@@ -129,6 +168,10 @@ function BlockRow({ block, index, onRenameOne, onRenameAll, audioRef, audioAvail
           rename all
         </span>
       </div>
+
+      <span style={{ fontSize: 12, paddingTop: 2, ...(ROLE_STYLE[role] || {}) }}>
+        {role}
+      </span>
 
       <div>
         {editing ? (
@@ -290,6 +333,8 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     URL.revokeObjectURL(url)
   }
 
+  const { roles, toggleStates, sectionIndices } = loading ? { roles: [], toggleStates: [], sectionIndices: [] } : computeBlockDisplay(blocks)
+
   if (loading) return (
     <div style={{ fontFamily: "'Outfit', sans-serif", maxWidth: 900, margin: "48px auto", padding: "0 20px" }}>
       <p style={{ color: "#888" }}>Loading transcript…</p>
@@ -333,13 +378,14 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
 
       <div style={{ background: "white", border: "0.5px solid #e5e5e5", borderRadius: 12, overflow: "hidden" }}>
         <div style={{
-          display: "grid", gridTemplateColumns: "80px 160px 1fr auto",
+          display: "grid", gridTemplateColumns: "80px 160px 40px 1fr auto",
           gap: 12, padding: "8px 16px",
           background: "#185FA5", color: "white", fontSize: 11,
           fontWeight: 500, letterSpacing: "0.06em", textTransform: "uppercase"
         }}>
           <span>Time</span>
           <span>Speaker</span>
+          <span>Role</span>
           <span>Text</span>
           <span></span>
         </div>
@@ -349,6 +395,9 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
             key={i}
             index={i}
             block={block}
+            role={roles[i]}
+            toggleState={toggleStates[i]}
+            sectionIndex={sectionIndices[i]}
             onRenameOne={openRenameOne}
             onRenameAll={openRenameAll}
             audioRef={audioRef}
