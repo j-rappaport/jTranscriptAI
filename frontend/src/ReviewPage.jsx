@@ -4,6 +4,11 @@ const API = import.meta.env.VITE_API_URL
 
 const ABBREVS = /\b(Mr|Mrs|Ms|Dr|Jr|Sr|vs|etc|No|St)\.  /gi
 
+const SHORTCUTS = [
+  { keys: "Space",   desc: "Play / Pause" },
+  { keys: "← →",    desc: "Skip ±4 seconds" },
+]
+
 function normalizeSentenceSpacing(text) {
   return text
     .replace(/([.?])\s*/g, "$1  ")
@@ -228,6 +233,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   const [renameTarget, setRenameTarget] = useState(null)
   const [renameValue, setRenameValue] = useState("")
   const [insertMenuIndex, setInsertMenuIndex] = useState(null)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const audioRef = useRef(null)
 
   useEffect(() => {
@@ -463,6 +469,27 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
           </div>
         </div>
       )}
+
+      <div style={{ position: "fixed", bottom: 20, right: 20, zIndex: 200, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
+        {shortcutsOpen && (
+          <div style={{ background: "white", border: "0.5px solid #e0e0e0", borderRadius: 10, padding: "12px 16px", boxShadow: "0 4px 16px rgba(0,0,0,0.08)", minWidth: 200 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: "#888", marginBottom: 10 }}>Shortcuts</div>
+            {SHORTCUTS.map(({ keys, desc }) => (
+              <div key={keys} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, marginBottom: 6 }}>
+                <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, background: "#f5f5f5", border: "0.5px solid #ddd", borderRadius: 4, padding: "2px 7px", color: "#444", whiteSpace: "nowrap" }}>{keys}</span>
+                <span style={{ fontSize: 12, color: "#555" }}>{desc}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <button
+          onClick={() => setShortcutsOpen(o => !o)}
+          title="Keyboard shortcuts"
+          style={{ width: 36, height: 36, borderRadius: "50%", border: "0.5px solid #ddd", background: "white", cursor: "pointer", fontSize: 16, boxShadow: "0 2px 8px rgba(0,0,0,0.08)", display: "flex", alignItems: "center", justifyContent: "center" }}
+        >
+          ⌨
+        </button>
+      </div>
     </div>
   )
 }
