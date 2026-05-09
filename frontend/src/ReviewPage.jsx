@@ -84,10 +84,19 @@ function computeBlockDisplay(blocks) {
 function BlockRow({ block, index, role, toggleState, sectionIndex, onRenameOne, onRenameAll, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete, onUpdateText }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState("")
+  const cancelledRef = useRef(false)
+  const textareaRef = useRef(null)
 
-  function startEdit() { setDraft(block.text); setEditing(true) }
-  function cancelEdit() { setEditing(false) }
+  function startEdit() { cancelledRef.current = false; setDraft(block.text); setEditing(true) }
+  function cancelEdit() { cancelledRef.current = true; setEditing(false) }
   function confirmEdit() { onUpdateText(index, draft); setEditing(false) }
+
+  useEffect(() => {
+    if (editing && textareaRef.current) {
+      textareaRef.current.style.height = "auto"
+      textareaRef.current.style.height = textareaRef.current.scrollHeight + "px"
+    }
+  }, [editing, draft])
   const isInQA = block.type === "qa_toggle" ? toggleState : !!role
   const rowBg = isInQA
     ? (sectionIndex % 2 === 0 ? "#dcfce7" : "#f0fdf4")
@@ -178,23 +187,19 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, onRenameOne, 
 
       <div>
         {editing ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <textarea
-              autoFocus
-              value={draft}
-              onChange={e => setDraft(e.target.value)}
-              onKeyDown={e => { if (e.key === "Escape") cancelEdit() }}
-              style={{
-                width: "100%", fontSize: 13, lineHeight: 1.6, fontFamily: "inherit",
-                padding: "4px 8px", borderRadius: 6, border: "0.5px solid #185FA5",
-                resize: "vertical", boxSizing: "border-box", minHeight: 60
-              }}
-            />
-            <div style={{ display: "flex", gap: 6 }}>
-              <button onClick={confirmEdit} style={{ fontSize: 12, padding: "3px 10px", borderRadius: 6, border: "none", background: "#185FA5", color: "white", cursor: "pointer" }}>✓ Save</button>
-              <button onClick={cancelEdit} style={{ fontSize: 12, padding: "3px 10px", borderRadius: 6, border: "0.5px solid #ddd", background: "white", color: "#888", cursor: "pointer" }}>Cancel</button>
-            </div>
-          </div>
+          <textarea
+            ref={textareaRef}
+            autoFocus
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            onBlur={() => { if (!cancelledRef.current) confirmEdit() }}
+            onKeyDown={e => { if (e.key === "Escape") cancelEdit() }}
+            style={{
+              width: "100%", fontSize: 13, lineHeight: 1.6, fontFamily: "inherit",
+              padding: "4px 8px", borderRadius: 6, border: "0.5px solid #185FA5",
+              resize: "none", boxSizing: "border-box", overflow: "hidden"
+            }}
+          />
         ) : (
           <span
             onClick={startEdit}
