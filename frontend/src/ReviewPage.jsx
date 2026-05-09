@@ -10,30 +10,31 @@ function msToTimecode(ms) {
   return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`
 }
 
-function InsertMenu({ onInsert, onClose }) {
+function InsertMenu({ onInsert, onDelete, onClose }) {
+  const itemStyle = { display: "block", width: "100%", textAlign: "left", padding: "7px 14px", fontSize: 12, background: "none", border: "none", cursor: "pointer" }
   return (
     <>
       <div style={{ position: "fixed", inset: 0, zIndex: 9 }} onClick={onClose} />
       <div style={{
         position: "absolute", right: 0, top: "calc(100% + 4px)", zIndex: 10,
         background: "white", border: "0.5px solid #ddd", borderRadius: 8,
-        boxShadow: "0 4px 12px rgba(0,0,0,0.08)", padding: "4px 0", minWidth: 140
+        boxShadow: "0 4px 12px rgba(0,0,0,0.08)", padding: "4px 0", minWidth: 160
       }}>
-        <button
-          onClick={() => onInsert("utterance")}
-          style={{ display: "block", width: "100%", textAlign: "left", padding: "7px 14px", fontSize: 12, background: "none", border: "none", cursor: "pointer", color: "#222" }}
+        <button onClick={() => onInsert("utterance")} style={{ ...itemStyle, color: "#222" }}
           onMouseEnter={e => e.target.style.background = "#f5f5f5"}
-          onMouseLeave={e => e.target.style.background = "none"}
-        >
-          Utterance
+          onMouseLeave={e => e.target.style.background = "none"}>
+          Insert Utterance
         </button>
-        <button
-          onClick={() => onInsert("qa_toggle")}
-          style={{ display: "block", width: "100%", textAlign: "left", padding: "7px 14px", fontSize: 12, background: "none", border: "none", cursor: "pointer", color: "#222" }}
+        <button onClick={() => onInsert("qa_toggle")} style={{ ...itemStyle, color: "#222" }}
           onMouseEnter={e => e.target.style.background = "#f5f5f5"}
-          onMouseLeave={e => e.target.style.background = "none"}
-        >
-          QA Toggle
+          onMouseLeave={e => e.target.style.background = "none"}>
+          Insert QA Toggle
+        </button>
+        <div style={{ borderTop: "0.5px solid #f0f0f0", margin: "4px 0" }} />
+        <button onClick={onDelete} style={{ ...itemStyle, color: "#ef4444" }}
+          onMouseEnter={e => e.target.style.background = "#fef2f2"}
+          onMouseLeave={e => e.target.style.background = "none"}>
+          Delete
         </button>
       </div>
     </>
@@ -100,21 +101,12 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, onRenameOne, 
         title="Insert below"
         style={{ ...iconBtnStyle, border: "0.5px solid #e0e0e0", background: "white", color: "#bbb" }}
       >
-        ⊕
+        ☰
       </button>
-      {insertMenuOpen && <InsertMenu onInsert={onInsert} onClose={onCloseInsertMenu} />}
+      {insertMenuOpen && <InsertMenu onInsert={onInsert} onDelete={() => { onDelete(); onCloseInsertMenu() }} onClose={onCloseInsertMenu} />}
     </div>
   )
 
-  const deleteBtn = (
-    <button
-      onClick={onDelete}
-      title="Delete block"
-      style={{ ...iconBtnStyle, border: "0.5px solid #fecaca", background: "white", color: "#f87171" }}
-    >
-      ✕
-    </button>
-  )
 
   if (block.type === "qa_toggle") {
     const onColor = "#16a34a", offColor = "#dc2626"
@@ -132,10 +124,7 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, onRenameOne, 
         </span>
         <span />
         <span />
-        <div style={{ display: "flex", gap: 4 }}>
-          {insertBtn}
-          {deleteBtn}
-        </div>
+        {insertBtn}
       </div>
     )
   }
@@ -216,11 +205,9 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, onRenameOne, 
         >
           {audioAvailable ? "▶ Play" : "no audio"}
         </button>
-        <div style={{ display: "flex", gap: 4 }}>
-          {insertBtn}
-          {deleteBtn}
-        </div>
+        {insertBtn}
       </div>
+
     </div>
   )
 }
@@ -320,11 +307,18 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   }
 
   function saveTranscript() {
-    const text = blocks
-      .filter(b => b.type === "utterance")
-      .map(b => `${b.speaker}:  ${b.text}`)
-      .join("\n")
-    const blob = new Blob([text], { type: "text/plain" })
+    const { roles } = computeBlockDisplay(blocks)
+    const lines = []
+    let prevRole = ""
+    for (let i = 0; i < blocks.length; i++) {
+      const b = blocks[i]
+      const role = roles[i]
+      if (b.type !== "utterance") continue
+      if (role === "Q" && prevRole === "") lines.push(`BY ${b.speaker}:`)
+      lines.push(role ? `${role}:  ${b.text}` : `${b.speaker}:  ${b.text}`)
+      prevRole = role
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/plain" })
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
