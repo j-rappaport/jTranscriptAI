@@ -14,6 +14,7 @@ const SHORTCUTS = [
   { keys: "x",          desc: "Delete selected block" },
   { keys: "b",          desc: "Insert utterance below" },
   { keys: "n",          desc: "Insert QA toggle below" },
+  { keys: "p",          desc: "Play from selected block" },
 ]
 
 function normalizeSentenceSpacing(text) {
@@ -285,6 +286,12 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
         insertBlockRef.current?.(selectedIndexRef.current, "qa_toggle")
       } else if (!audioRef.current) {
         return
+      } else if (e.key === "p") {
+        const block = blocksRef.current?.[selectedIndexRef.current]
+        if (block?.start_ms != null) {
+          audioRef.current.currentTime = block.start_ms / 1000
+          audioRef.current.play()
+        }
       } else if (e.key === " ") {
         e.preventDefault()
         audioRef.current.paused ? audioRef.current.play() : audioRef.current.pause()
