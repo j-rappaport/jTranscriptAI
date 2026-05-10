@@ -5,8 +5,15 @@ const API = import.meta.env.VITE_API_URL
 const ABBREVS = /\b(Mr|Mrs|Ms|Dr|Jr|Sr|vs|etc|No|St)\.  /gi
 
 const SHORTCUTS = [
-  { keys: "Space",   desc: "Play / Pause" },
-  { keys: "← →",    desc: "Skip ±4 seconds" },
+  { keys: "Space",      desc: "Play / Pause" },
+  { keys: "← →",       desc: "Skip ±4 seconds" },
+  { keys: "↑ ↓",       desc: "Move selection" },
+  { keys: "Enter",      desc: "Edit selected block" },
+  { keys: "Shift+Enter", desc: "New line while editing" },
+  { keys: "Escape",     desc: "Cancel edit" },
+  { keys: "x",          desc: "Delete selected block" },
+  { keys: "b",          desc: "Insert utterance below" },
+  { keys: "n",          desc: "Insert QA toggle below" },
 ]
 
 function normalizeSentenceSpacing(text) {
@@ -81,22 +88,7 @@ function computeBlockDisplay(blocks) {
   return { roles, toggleStates, sectionIndices }
 }
 
-function BlockRow({ block, index, role, toggleState, sectionIndex, onRenameOne, onRenameAll, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete, onUpdateText }) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState("")
-  const cancelledRef = useRef(false)
-  const textareaRef = useRef(null)
-
-  function startEdit() { cancelledRef.current = false; setDraft(block.text); setEditing(true) }
-  function cancelEdit() { cancelledRef.current = true; setEditing(false) }
-  function confirmEdit() { onUpdateText(index, draft); setEditing(false) }
-
-  useEffect(() => {
-    if (editing && textareaRef.current) {
-      textareaRef.current.style.height = "auto"
-      textareaRef.current.style.height = textareaRef.current.scrollHeight + "px"
-    }
-  }, [editing, draft])
+function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, isEditing, draft, textareaRef, onSelect, onStartEdit, onConfirmEdit, onCancelEdit, onDraftChange, onRenameOne, onRenameAll, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete, onUpdateText }) {
   const isInQA = block.type === "qa_toggle" ? toggleState : !!role
   const rowBg = isInQA
     ? (sectionIndex % 2 === 0 ? "#dcfce7" : "#f0fdf4")
@@ -109,7 +101,13 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, onRenameOne, 
     padding: "10px 16px",
     borderBottom: "0.5px solid #f0f0f0",
     alignItems: "start",
-    background: rowBg
+    background: rowBg,
+    cursor: "default",
+    position: "relative",
+    ...(isSelected ? {
+      boxShadow: "inset 3px 0 0 #185FA5, 0 2px 10px rgba(24,95,165,0.10)",
+      zIndex: 1,
+    } : {})
   }
 
   const iconBtnStyle = {
@@ -137,7 +135,7 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, onRenameOne, 
     const bg = toggleState ? "#f0fdf4" : "#fef2f2"
     const border = toggleState ? "#bbf7d0" : "#fecaca"
     return (
-      <div style={rowStyle}>
+      <div style={rowStyle} onClick={onSelect} data-block-index={index}>
         <span />
         <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 12, fontWeight: 500, color: "#888", fontStyle: "italic" }}>QA Toggle</span>
@@ -159,7 +157,7 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, onRenameOne, 
   }
 
   return (
-    <div style={rowStyle}>
+    <div style={rowStyle} onClick={onSelect} data-block-index={index}>
       <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: "#888", paddingTop: 2 }}>
         {msToTimecode(block.start_ms)}
       </span>
@@ -186,14 +184,18 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, onRenameOne, 
       </span>
 
       <div>
-        {editing ? (
+        {isEditing ? (
           <textarea
             ref={textareaRef}
             autoFocus
             value={draft}
-            onChange={e => setDraft(e.target.value)}
-            onBlur={() => { if (!cancelledRef.current) confirmEdit() }}
-            onKeyDown={e => { if (e.key === "Escape") cancelEdit() }}
+            onChange={e => onDraftChange(e.target.value)}
+            onBlur={onConfirmEdit}
+            onKeyDown={e => {
+              e.stopPropagation()
+              if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onConfirmEdit() }
+              if (e.key === "Escape") onCancelEdit()
+            }}
             style={{
               width: "100%", fontSize: 13, lineHeight: 1.6, fontFamily: "inherit",
               padding: "4px 8px", borderRadius: 6, border: "0.5px solid #185FA5",
@@ -202,7 +204,7 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, onRenameOne, 
           />
         ) : (
           <span
-            onClick={startEdit}
+            onClick={onStartEdit}
             title="Click to edit"
             style={{ fontSize: 13, color: "#222", lineHeight: 1.6, cursor: "text" }}
           >{block.text}</span>
@@ -238,15 +240,52 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   const [renameTarget, setRenameTarget] = useState(null)
   const [renameValue, setRenameValue] = useState("")
   const [insertMenuIndex, setInsertMenuIndex] = useState(null)
+  const [selectedIndex, setSelectedIndex] = useState(0)
+  const [editingIndex, setEditingIndex] = useState(null)
+  const [draft, setDraft] = useState("")
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const audioRef = useRef(null)
+  const blocksRef = useRef(null)
+  const selectedIndexRef = useRef(0)
+  const cancelledRef = useRef(false)
+  const textareaRef = useRef(null)
+  const deleteBlockRef = useRef(null)
+  const insertBlockRef = useRef(null)
+  useEffect(() => { blocksRef.current = blocks }, [blocks])
+  useEffect(() => { selectedIndexRef.current = selectedIndex }, [selectedIndex])
+  useEffect(() => {
+    if (blocks) setSelectedIndex(i => Math.min(i, Math.max(0, blocks.length - 1)))
+  }, [blocks])
+  useEffect(() => {
+    if (editingIndex !== null && textareaRef.current) {
+      textareaRef.current.style.height = "auto"
+      textareaRef.current.style.height = textareaRef.current.scrollHeight + "px"
+    }
+  }, [editingIndex, draft])
 
   useEffect(() => {
     function handleKey(e) {
       const tag = document.activeElement?.tagName
       if (tag === "INPUT" || tag === "TEXTAREA") return
-      if (!audioRef.current) return
-      if (e.key === " ") {
+      if (e.key === "ArrowUp") {
+        e.preventDefault()
+        setSelectedIndex(i => Math.max(0, i - 1))
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault()
+        setSelectedIndex(i => Math.min((blocksRef.current?.length ?? 1) - 1, i + 1))
+      } else if (e.key === "Enter") {
+        const idx = selectedIndexRef.current
+        const block = blocksRef.current?.[idx]
+        if (block?.type === "utterance") { e.preventDefault(); cancelledRef.current = false; setDraft(block.text); setEditingIndex(idx) }
+      } else if (e.key === "x") {
+        deleteBlockRef.current?.(selectedIndexRef.current)
+      } else if (e.key === "b") {
+        insertBlockRef.current?.(selectedIndexRef.current, "utterance")
+      } else if (e.key === "n") {
+        insertBlockRef.current?.(selectedIndexRef.current, "qa_toggle")
+      } else if (!audioRef.current) {
+        return
+      } else if (e.key === " ") {
         e.preventDefault()
         audioRef.current.paused ? audioRef.current.play() : audioRef.current.pause()
       } else if (e.key === "ArrowRight") {
@@ -260,6 +299,12 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     document.addEventListener("keydown", handleKey)
     return () => document.removeEventListener("keydown", handleKey)
   }, [])
+
+  useEffect(() => {
+    if (!blocks) return
+    const el = document.querySelector(`[data-block-index="${selectedIndex}"]`)
+    if (el) el.scrollIntoView({ block: "nearest", behavior: "smooth" })
+  }, [selectedIndex])
 
   useEffect(() => {
     fetch(`${API}/jobs/${jobId}`, { headers: authHeaders() })
@@ -305,6 +350,24 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     })
   }
 
+  function startEditBlock(index) {
+    cancelledRef.current = false
+    setDraft(blocks[index].text)
+    setEditingIndex(index)
+  }
+
+  function cancelEdit() {
+    cancelledRef.current = true
+    setEditingIndex(null)
+  }
+
+  function confirmEdit() {
+    if (cancelledRef.current) return
+    cancelledRef.current = true
+    updateText(editingIndex, draft)
+    setEditingIndex(null)
+  }
+
   function updateText(index, newText) {
     const updated = blocks.map((b, i) => i === index ? { ...b, text: newText } : b)
     setBlocks(updated)
@@ -316,7 +379,9 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   }
 
   function deleteBlock(index) {
-    const updated = blocks.filter((_, i) => i !== index)
+    const cur = blocksRef.current
+    if (!cur) return
+    const updated = cur.filter((_, i) => i !== index)
     setBlocks(updated)
     fetch(`${API}/jobs/${jobId}/blocks`, {
       method: "PUT",
@@ -326,16 +391,18 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   }
 
   function insertBlock(afterIndex, type) {
+    const cur = blocksRef.current
+    if (!cur) return
     let newBlock
     if (type === "qa_toggle") {
       newBlock = { type: "qa_toggle" }
     } else {
-      newBlock = { ...blocks[afterIndex], type: "utterance" }
+      newBlock = { ...cur[afterIndex], type: "utterance" }
     }
     const updated = [
-      ...blocks.slice(0, afterIndex + 1),
+      ...cur.slice(0, afterIndex + 1),
       newBlock,
-      ...blocks.slice(afterIndex + 1)
+      ...cur.slice(afterIndex + 1)
     ]
     setBlocks(updated)
     setInsertMenuIndex(null)
@@ -345,6 +412,9 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
       body: JSON.stringify({ blocks: updated }),
     })
   }
+
+  deleteBlockRef.current = deleteBlock
+  insertBlockRef.current = insertBlock
 
   function saveTranscript() {
     const { roles } = computeBlockDisplay(blocks)
@@ -442,6 +512,15 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
             onCloseInsertMenu={() => setInsertMenuIndex(null)}
             onInsert={type => insertBlock(i, type)}
             onDelete={() => deleteBlock(i)}
+            isSelected={selectedIndex === i}
+            isEditing={editingIndex === i}
+            draft={draft}
+            textareaRef={editingIndex === i ? textareaRef : null}
+            onSelect={() => setSelectedIndex(i)}
+            onStartEdit={() => startEditBlock(i)}
+            onConfirmEdit={confirmEdit}
+            onCancelEdit={cancelEdit}
+            onDraftChange={setDraft}
             onUpdateText={updateText}
           />
         ))}
