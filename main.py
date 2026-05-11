@@ -256,16 +256,6 @@ def audio_available(job_id: str, user: str = Depends(require_auth)):
     return {"available": bool(path and os.path.exists(path))}
 
 
-@app.get("/health")
-def health():
-    return {
-        "clerk_jwks_url_set": bool(os.getenv("CLERK_JWKS_URL")),
-        "stripe_key_set": bool(os.getenv("STRIPE_SECRET_KEY")),
-        "app_url_set": bool(os.getenv("APP_URL")),
-        "database_url_set": bool(os.getenv("DATABASE_URL")),
-        "assemblyai_key_set": bool(os.getenv("ASSEMBLYAI_API_KEY")),
-    }
-
 @app.get("/credits")
 def get_credits(user: str = Depends(require_auth)):
     ms = db_get_credits(user)
