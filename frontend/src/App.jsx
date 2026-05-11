@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react"
+import { ClerkProvider, useAuth, SignIn, UserButton } from "@clerk/clerk-react"
 import ReviewPage from "./ReviewPage"
 
 const API = import.meta.env.VITE_API_URL
-
-// ---- Outside App() ---- pure utility functions that don't need state ----
+const CLERK_PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
 
 function formatDuration(ms) {
   if (!ms) return "—"
@@ -23,9 +23,33 @@ function formatDate(iso) {
   })
 }
 
-// ---- App() ---- everything that touches state lives inside ----
+function SignInPage() {
+  return (
+    <div style={{ fontFamily: "'Outfit', sans-serif", display: "flex", flexDirection: "column", alignItems: "center", marginTop: 80, padding: "0 20px" }}>
+      <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Mono:wght@400;500&family=Outfit:wght@300;400;500&display=swap" rel="stylesheet" />
 
-export default function App() {
+      <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 32 }}>
+        <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 28, letterSpacing: "-0.5px" }}>
+          j<span style={{ color: "#185FA5" }}>Transcript</span>
+        </div>
+        <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "#888", border: "0.5px solid #ddd", padding: "3px 8px", borderRadius: 4 }}>
+          Court Edition
+        </div>
+      </div>
+
+      <SignIn routing="hash" />
+    </div>
+  )
+}
+
+const CREDIT_PACKS = [
+  { id: "5h",  label: "5 hours",  price: "$10" },
+  { id: "15h", label: "15 hours", price: "$25" },
+  { id: "50h", label: "50 hours", price: "$70" },
+]
+
+function AppInner() {
+  const { getToken, isSignedIn, isLoaded } = useAuth()
   const [file, setFile] = useState(null)
   const [jobId, setJobId] = useState(null)
   const [status, setStatus] = useState(null)
@@ -34,51 +58,68 @@ export default function App() {
   const [dragging, setDragging] = useState(false)
   const [reviewing, setReviewing] = useState(false)
   const [jobs, setJobs] = useState([])
-  const [authed, setAuthed] = useState(() => !!sessionStorage.getItem("auth"))
-  const [loginUser, setLoginUser] = useState(() => sessionStorage.getItem("user") || "")
-  const [loginPass, setLoginPass] = useState(() => sessionStorage.getItem("pass") || "")
-  const [loginError, setLoginError] = useState(null)
-  const [loginLoading, setLoginLoading] = useState(false)
+  const [credits, setCredits] = useState(null)
+  const [showBuyCredits, setShowBuyCredits] = useState(false)
+  const [buyingPack, setBuyingPack] = useState(null)
+  const [paymentNotice, setPaymentNotice] = useState(null)
 
   useEffect(() => {
-    if (authed) fetchJobs()
-  }, [authed])
-
-  function authHeaders() {
-    return {
-      "Authorization": "Basic " + btoa(`${loginUser}:${loginPass}`)
-    }
-  }
-
-  async function handleLogin() {
-    setLoginLoading(true)
-    setLoginError(null)
-    try {
-      const res = await fetch(`${API}/jobs`, {
-        headers: authHeaders()
-      })
-      if (res.ok) {
-          sessionStorage.setItem("auth", "true")
-          sessionStorage.setItem("user", loginUser)
-          sessionStorage.setItem("pass", loginPass)
-          setAuthed(true)
-      } else {
-        setLoginError("Invalid username or password")
+    if (isSignedIn) {
+      fetchJobs()
+      fetchCredits()
+      const params = new URLSearchParams(window.location.search)
+      if (params.get("payment") === "success") {
+        setPaymentNotice("success")
+        window.history.replaceState({}, "", "/")
+        setTimeout(fetchCredits, 2000) // give webhook a moment
+      } else if (params.get("payment") === "cancelled") {
+        setPaymentNotice("cancelled")
+        window.history.replaceState({}, "", "/")
       }
-    } catch (e) {
-      setLoginError("Could not connect to server")
-    } finally {
-      setLoginLoading(false)
     }
+  }, [isSignedIn])
+
+  async function authHeaders() {
+    const token = await getToken()
+    return { Authorization: `Bearer ${token}` }
   }
 
   async function fetchJobs() {
     try {
-      const res = await fetch(`${API}/jobs`, { headers: authHeaders() })
+      const headers = await authHeaders()
+      const res = await fetch(`${API}/jobs`, { headers })
       const data = await res.json()
       setJobs(data)
     } catch (e) {
-      console.error("Failed to fetch the jobs", e)
+      console.error("Failed to fetch jobs", e)
+    }
+  }
+
+  async function fetchCredits() {
+    try {
+      const headers = await authHeaders()
+      const res = await fetch(`${API}/credits`, { headers })
+      const data = await res.json()
+      setCredits(data)
+    } catch (e) {
+      console.error("Failed to fetch credits", e)
+    }
+  }
+
+  async function handleBuyCredits(packId) {
+    setBuyingPack(packId)
+    try {
+      const headers = await authHeaders()
+      const res = await fetch(`${API}/billing/checkout`, {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ pack: packId }),
+      })
+      const data = await res.json()
+      window.location.href = data.url
+    } catch (e) {
+      console.error("Checkout failed", e)
+      setBuyingPack(null)
     }
   }
 
@@ -97,11 +138,17 @@ export default function App() {
     try {
       const formData = new FormData()
       formData.append("file", file)
+      const headers = await authHeaders()
       const res = await fetch(`${API}/jobs`, {
         method: "POST",
-        headers: authHeaders(),
+        headers,
         body: formData
       })
+      if (res.status === 402) {
+        setShowBuyCredits(true)
+        setError("No credits remaining.")
+        return
+      }
       const data = await res.json()
       setJobId(data.job_id)
       setStatus("pending")
@@ -116,7 +163,8 @@ export default function App() {
   function poll(id) {
     const iv = setInterval(async () => {
       try {
-        const res = await fetch(`${API}/jobs/${id}`, { headers: authHeaders() })
+        const headers = await authHeaders()
+        const res = await fetch(`${API}/jobs/${id}`, { headers })
         const data = await res.json()
         setStatus(data.status)
         if (data.status === "done" || data.status === "error") {
@@ -136,7 +184,10 @@ export default function App() {
     setReviewing(true)
   }
 
-  // ---- Render: review page ----
+  if (!isLoaded) return null
+
+  if (!isSignedIn) return <SignInPage />
+
   if (reviewing && jobId) {
     return <ReviewPage
       jobId={jobId}
@@ -151,13 +202,31 @@ export default function App() {
     />
   }
 
-  // ---- Render: login page ----
-  if (!authed) {
-    return (
-      <div style={{ fontFamily: "'Outfit', sans-serif", maxWidth: 380, margin: "120px auto", padding: "0 20px" }}>
-        <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Mono:wght@400;500&family=Outfit:wght@300;400;500&display=swap" rel="stylesheet" />
+  const statusColor = { pending: "#185FA5", transcribing: "#185FA5", done: "#3B6D11", error: "#A32D2D" }
+  const statusBg = { pending: "#E6F1FB", transcribing: "#E6F1FB", done: "#EAF3DE", error: "#FCEBEB" }
 
-        <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 32 }}>
+  const creditsHours = credits?.credits_hours ?? null
+  const lowCredits = creditsHours !== null && creditsHours < 0.5
+
+  return (
+    <div style={{ fontFamily: "'Outfit', sans-serif", maxWidth: 660, margin: "48px auto", padding: "0 20px" }}>
+      <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Mono:wght@400;500&family=Outfit:wght@300;400;500&display=swap" rel="stylesheet" />
+
+      {paymentNotice === "success" && (
+        <div style={{ marginBottom: 16, padding: "10px 16px", background: "#EAF3DE", color: "#3B6D11", borderRadius: 8, fontSize: 13 }}>
+          Payment successful — your credits have been added.{" "}
+          <span style={{ cursor: "pointer", textDecoration: "underline" }} onClick={() => setPaymentNotice(null)}>Dismiss</span>
+        </div>
+      )}
+      {paymentNotice === "cancelled" && (
+        <div style={{ marginBottom: 16, padding: "10px 16px", background: "#FFF8E6", color: "#7A5800", borderRadius: 8, fontSize: 13 }}>
+          Payment cancelled — no charges were made.{" "}
+          <span style={{ cursor: "pointer", textDecoration: "underline" }} onClick={() => setPaymentNotice(null)}>Dismiss</span>
+        </div>
+      )}
+
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 32 }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
           <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 28, letterSpacing: "-0.5px" }}>
             j<span style={{ color: "#185FA5" }}>Transcript</span>
           </div>
@@ -165,69 +234,54 @@ export default function App() {
             Court Edition
           </div>
         </div>
-
-        <div style={{ background: "white", border: "0.5px solid #e5e5e5", borderRadius: 12, padding: 24 }}>
-          <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 20 }}>Sign in</div>
-
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 12, color: "#888", marginBottom: 6 }}>Username</div>
-            <input
-              value={loginUser}
-              onChange={e => setLoginUser(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && handleLogin()}
-              style={{ width: "100%", padding: "8px 12px", fontSize: 14, borderRadius: 8, border: "0.5px solid #ddd", boxSizing: "border-box" }}
-            />
-          </div>
-
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 12, color: "#888", marginBottom: 6 }}>Password</div>
-            <input
-              type="password"
-              value={loginPass}
-              onChange={e => setLoginPass(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && handleLogin()}
-              style={{ width: "100%", padding: "8px 12px", fontSize: 14, borderRadius: 8, border: "0.5px solid #ddd", boxSizing: "border-box" }}
-            />
-          </div>
-
-          {loginError && (
-            <div style={{ fontSize: 13, color: "#A32D2D", marginBottom: 12 }}>{loginError}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          {creditsHours !== null && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 12, color: lowCredits ? "#A32D2D" : "#555" }}>
+                {creditsHours.toFixed(1)} hrs remaining
+              </span>
+              <button
+                onClick={() => setShowBuyCredits(v => !v)}
+                style={{
+                  fontSize: 12, padding: "4px 10px", borderRadius: 6,
+                  border: "0.5px solid #185FA5", background: "white",
+                  color: "#185FA5", cursor: "pointer"
+                }}
+              >
+                Buy credits
+              </button>
+            </div>
           )}
-
-          <button
-            onClick={handleLogin}
-            disabled={!loginUser || !loginPass || loginLoading}
-            style={{
-              width: "100%", padding: 13, borderRadius: 8, border: "none",
-              background: (!loginUser || !loginPass || loginLoading) ? "#f0f0f0" : "#185FA5",
-              color: (!loginUser || !loginPass || loginLoading) ? "#aaa" : "white",
-              fontFamily: "'Outfit', sans-serif", fontSize: 15, fontWeight: 500,
-              cursor: (!loginUser || !loginPass || loginLoading) ? "not-allowed" : "pointer"
-            }}
-          >
-            {loginLoading ? "Signing in…" : "Sign in"}
-          </button>
+          <UserButton />
         </div>
       </div>
-    )
-  }
 
-  // ---- Render: main upload page ----
-  const statusColor = { pending: "#185FA5", transcribing: "#185FA5", done: "#3B6D11", error: "#A32D2D" }
-  const statusBg = { pending: "#E6F1FB", transcribing: "#E6F1FB", done: "#EAF3DE", error: "#FCEBEB" }
-
-  return (
-    <div style={{ fontFamily: "'Outfit', sans-serif", maxWidth: 660, margin: "48px auto", padding: "0 20px" }}>
-      <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Mono:wght@400;500&family=Outfit:wght@300;400;500&display=swap" rel="stylesheet" />
-
-      <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 32 }}>
-        <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 28, letterSpacing: "-0.5px" }}>
-          j<span style={{ color: "#185FA5" }}>Transcript</span>
+      {showBuyCredits && (
+        <div style={{ background: "white", border: "0.5px solid #e5e5e5", borderRadius: 12, padding: 20, marginBottom: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 14, color: "#222" }}>Purchase transcription hours</div>
+          <div style={{ display: "flex", gap: 10 }}>
+            {CREDIT_PACKS.map(pack => (
+              <button
+                key={pack.id}
+                onClick={() => handleBuyCredits(pack.id)}
+                disabled={buyingPack === pack.id}
+                style={{
+                  flex: 1, padding: "12px 8px", borderRadius: 8,
+                  border: "0.5px solid #ddd", background: buyingPack === pack.id ? "#f0f0f0" : "white",
+                  cursor: buyingPack === pack.id ? "wait" : "pointer",
+                  textAlign: "center"
+                }}
+              >
+                <div style={{ fontSize: 14, fontWeight: 500, color: "#185FA5" }}>{pack.label}</div>
+                <div style={{ fontSize: 18, fontWeight: 600, margin: "4px 0" }}>{pack.price}</div>
+                <div style={{ fontSize: 11, color: "#aaa" }}>
+                  {pack.id === "5h" ? "$2.00/hr" : pack.id === "15h" ? "$1.67/hr" : "$1.40/hr"}
+                </div>
+              </button>
+            ))}
+          </div>
         </div>
-        <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "#888", border: "0.5px solid #ddd", padding: "3px 8px", borderRadius: 4 }}>
-          Court Edition
-        </div>
-      </div>
+      )}
 
       <div style={{ background: "white", border: "0.5px solid #e5e5e5", borderRadius: 12, padding: 24, marginBottom: 16 }}>
         <div
@@ -325,5 +379,13 @@ export default function App() {
         </div>
       )}
     </div>
+  )
+}
+
+export default function App() {
+  return (
+    <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY}>
+      <AppInner />
+    </ClerkProvider>
   )
 }
