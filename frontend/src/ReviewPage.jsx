@@ -539,33 +539,58 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
         ))}
       </div>
 
-      {renameTarget && (
-        <div style={{
-          position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)",
-          display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100
-        }}>
-          <div style={{ background: "white", borderRadius: 12, padding: 24, width: 360 }}>
-            <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 16 }}>
-              {renameTarget.mode === "all" ? `Rename all "${renameTarget.speaker}"` : "Rename this speaker"}
-            </div>
-            <input
-              autoFocus
-              value={renameValue}
-              onChange={e => setRenameValue(e.target.value)}
-              onKeyDown={e => { e.stopPropagation(); if (e.key === "Enter") applyRename(); if (e.key === "Escape") setRenameTarget(null) }}
-              style={{ width: "100%", padding: "8px 12px", fontSize: 14, borderRadius: 8, border: "0.5px solid #ddd", boxSizing: "border-box", marginBottom: 16 }}
-            />
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-              <button onClick={() => setRenameTarget(null)} style={{ padding: "7px 16px", borderRadius: 8, border: "0.5px solid #ddd", background: "white", cursor: "pointer" }}>
-                Cancel
-              </button>
-              <button onClick={applyRename} style={{ padding: "7px 16px", borderRadius: 8, border: "none", background: "#185FA5", color: "white", cursor: "pointer" }}>
-                Rename
-              </button>
+      {renameTarget && (() => {
+        const existingSpeakers = [...new Set(blocks.filter(b => b.type === "utterance").map(b => b.speaker))].filter(s => s !== renameTarget.speaker)
+        return (
+          <div style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)",
+            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100
+          }}>
+            <div style={{ background: "white", borderRadius: 12, padding: 24, width: 360 }}>
+              <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 16 }}>
+                {renameTarget.mode === "all" ? `Rename all "${renameTarget.speaker}"` : "Rename this speaker"}
+              </div>
+              {existingSpeakers.length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.06em", color: "#aaa", marginBottom: 8 }}>Existing speakers</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {existingSpeakers.map(s => (
+                      <button
+                        key={s}
+                        onClick={() => { setRenameValue(s); }}
+                        style={{
+                          padding: "4px 10px", borderRadius: 6, fontSize: 12, cursor: "pointer",
+                          border: renameValue === s ? "1.5px solid #185FA5" : "0.5px solid #ddd",
+                          background: renameValue === s ? "#E6F1FB" : "white",
+                          color: renameValue === s ? "#185FA5" : "#444", fontWeight: 500
+                        }}
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.06em", color: "#aaa", marginBottom: 8 }}>New name</div>
+              <input
+                autoFocus
+                value={renameValue}
+                onChange={e => setRenameValue(e.target.value)}
+                onKeyDown={e => { e.stopPropagation(); if (e.key === "Enter") applyRename(); if (e.key === "Escape") setRenameTarget(null) }}
+                style={{ width: "100%", padding: "8px 12px", fontSize: 14, borderRadius: 8, border: "0.5px solid #ddd", boxSizing: "border-box", marginBottom: 16 }}
+              />
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button onClick={() => setRenameTarget(null)} style={{ padding: "7px 16px", borderRadius: 8, border: "0.5px solid #ddd", background: "white", cursor: "pointer" }}>
+                  Cancel
+                </button>
+                <button onClick={applyRename} style={{ padding: "7px 16px", borderRadius: 8, border: "none", background: "#185FA5", color: "white", cursor: "pointer" }}>
+                  Rename
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       <div style={{ position: "fixed", bottom: 20, right: 20, zIndex: 200, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
         {shortcutsOpen && (
