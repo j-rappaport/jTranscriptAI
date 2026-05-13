@@ -409,7 +409,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     if (type === "qa_toggle") {
       newBlock = { type: "qa_toggle" }
     } else {
-      newBlock = { ...cur[afterIndex], type: "utterance" }
+      newBlock = { type: "utterance", speaker: "UNKNOWN SPEAKER", text: "", start_ms: cur[afterIndex]?.end_ms ?? 0, end_ms: cur[afterIndex]?.end_ms ?? 0 }
     }
     const updated = [
       ...cur.slice(0, afterIndex + 1),
