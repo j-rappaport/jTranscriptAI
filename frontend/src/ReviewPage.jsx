@@ -546,7 +546,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
             position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)",
             display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100
           }}>
-            <div style={{ background: "white", borderRadius: 12, padding: 24, width: 360 }}>
+            <div style={{ background: "white", borderRadius: 12, padding: 24, width: 360 }} onKeyDown={e => { e.stopPropagation(); if (e.key === "Enter") applyRename(); if (e.key === "Escape") setRenameTarget(null) }}>
               <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 16 }}>
                 {renameTarget.mode === "all" ? `Rename all "${renameTarget.speaker}"` : "Rename this speaker"}
               </div>
@@ -580,7 +580,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
                 style={{ width: "100%", padding: "8px 12px", fontSize: 14, borderRadius: 8, border: "0.5px solid #ddd", boxSizing: "border-box", marginBottom: 16 }}
               />
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                <button onClick={() => setRenameTarget(null)} style={{ padding: "7px 16px", borderRadius: 8, border: "0.5px solid #ddd", background: "white", cursor: "pointer" }}>
+                <button onClick={() => setRenameTarget(null)} style={{ padding: "7px 16px", borderRadius: 8, border: "0.5px solid #ddd", background: "white", cursor: "pointer", color: "#222" }}>
                   Cancel
                 </button>
                 <button onClick={applyRename} style={{ padding: "7px 16px", borderRadius: 8, border: "none", background: "#185FA5", color: "white", cursor: "pointer" }}>
