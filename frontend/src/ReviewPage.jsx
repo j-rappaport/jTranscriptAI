@@ -552,7 +552,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
               autoFocus
               value={renameValue}
               onChange={e => setRenameValue(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter") applyRename(); if (e.key === "Escape") setRenameTarget(null) }}
+              onKeyDown={e => { e.stopPropagation(); if (e.key === "Enter") applyRename(); if (e.key === "Escape") setRenameTarget(null) }}
               style={{ width: "100%", padding: "8px 12px", fontSize: 14, borderRadius: 8, border: "0.5px solid #ddd", boxSizing: "border-box", marginBottom: 16 }}
             />
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
