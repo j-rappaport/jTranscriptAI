@@ -315,7 +315,7 @@ def run_transcription(job_id: str, audio_path: str, user_id: str):
         # Note: speech_models takes a list, not speech_model
         config = aai.TranscriptionConfig(
             speaker_labels=True,
-            speech_models=[aai.SpeechModel.universal]
+            speech_models=["universal-3-pro", "universal-2"],
         )
         transcriber = aai.Transcriber()
         transcript = transcriber.transcribe(audio_path, config=config)
