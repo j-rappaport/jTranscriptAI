@@ -439,7 +439,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
       if (b.type !== "utterance") continue
       if (role === "Q" && prevRole === "") lines.push(`BY ${b.speaker}:`)
       const text = normalizeSentenceSpacing(b.text)
-      lines.push(role ? `\t\t${role}:  ${text}` : `\t${b.speaker}:  ${text}`)
+      lines.push(role ? `\t${role}:  ${text}` : `\t\t${b.speaker}:  ${text}`)
       prevRole = role
     }
     const blob = new Blob([lines.join("\n")], { type: "text/plain" })
