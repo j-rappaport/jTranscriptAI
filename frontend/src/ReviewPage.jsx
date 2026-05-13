@@ -314,17 +314,19 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   }, [selectedIndex])
 
   useEffect(() => {
-    fetch(`${API}/jobs/${jobId}`, { headers: authHeaders() })
-      .then(r => r.json())
-      .then(data => {
-        setBlocks(data.blocks.map(b => b.type ? b : { ...b, type: "utterance" }))
-        setLoading(false)
-      })
-
-    fetch(`${API}/jobs/${jobId}/audio-available`, { headers: authHeaders() })
-      .then(r => r.json())
-      .then(data => setAudioAvailable(data.available))
-
+    async function load() {
+      const headers = await authHeaders()
+      fetch(`${API}/jobs/${jobId}`, { headers })
+        .then(r => r.json())
+        .then(data => {
+          setBlocks(data.blocks.map(b => b.type ? b : { ...b, type: "utterance" }))
+          setLoading(false)
+        })
+      fetch(`${API}/jobs/${jobId}/audio-available`, { headers })
+        .then(r => r.json())
+        .then(data => setAudioAvailable(data.available))
+    }
+    load()
   }, [jobId])
 
   function openRenameOne(index) {
@@ -337,7 +339,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     setRenameValue(speaker)
   }
 
-  function applyRename() {
+  async function applyRename() {
     const newName = renameValue.trim().toUpperCase()
     if (!newName) return
     const updated = blocks.map((b, i) => {
@@ -350,9 +352,10 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     })
     setBlocks(updated)
     setRenameTarget(null)
+    const headers = await authHeaders()
     fetch(`${API}/jobs/${jobId}/blocks`, {
       method: "PUT",
-      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      headers: { ...headers, "Content-Type": "application/json" },
       body: JSON.stringify({ blocks: updated }),
     })
   }
@@ -375,29 +378,31 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     setEditingIndex(null)
   }
 
-  function updateText(index, newText) {
+  async function updateText(index, newText) {
     const updated = blocks.map((b, i) => i === index ? { ...b, text: newText } : b)
     setBlocks(updated)
+    const headers = await authHeaders()
     fetch(`${API}/jobs/${jobId}/blocks`, {
       method: "PUT",
-      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      headers: { ...headers, "Content-Type": "application/json" },
       body: JSON.stringify({ blocks: updated }),
     })
   }
 
-  function deleteBlock(index) {
+  async function deleteBlock(index) {
     const cur = blocksRef.current
     if (!cur) return
     const updated = cur.filter((_, i) => i !== index)
     setBlocks(updated)
+    const headers = await authHeaders()
     fetch(`${API}/jobs/${jobId}/blocks`, {
       method: "PUT",
-      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      headers: { ...headers, "Content-Type": "application/json" },
       body: JSON.stringify({ blocks: updated }),
     })
   }
 
-  function insertBlock(afterIndex, type) {
+  async function insertBlock(afterIndex, type) {
     const cur = blocksRef.current
     if (!cur) return
     let newBlock
@@ -413,9 +418,10 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     ]
     setBlocks(updated)
     setInsertMenuIndex(null)
+    const headers = await authHeaders()
     fetch(`${API}/jobs/${jobId}/blocks`, {
       method: "PUT",
-      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      headers: { ...headers, "Content-Type": "application/json" },
       body: JSON.stringify({ blocks: updated }),
     })
   }
@@ -433,7 +439,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
       if (b.type !== "utterance") continue
       if (role === "Q" && prevRole === "") lines.push(`BY ${b.speaker}:`)
       const text = normalizeSentenceSpacing(b.text)
-      lines.push(role ? `${role}:  ${text}` : `${b.speaker}:  ${text}`)
+      lines.push(role ? `\t\t${role}:  ${text}` : `\t${b.speaker}:  ${text}`)
       prevRole = role
     }
     const blob = new Blob([lines.join("\n")], { type: "text/plain" })
