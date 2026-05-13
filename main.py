@@ -316,6 +316,12 @@ def run_transcription(job_id: str, audio_path: str, user_id: str):
         config = aai.TranscriptionConfig(
             speaker_labels=True,
             speech_models=["universal-3-pro", "universal-2"],
+            prompt=(
+                "Always: Transcribe speech exactly as heard. If uncertain or audio is unclear, mark as [unclear]. "
+                "After the first output, review the transcript again. Pay close attention to hallucinations, misspellings, or errors, "
+                "and revise them like a computer performing spell and grammar checks. "
+                "Ensure words and phrases make grammatical sense in sentences."
+            ),
         )
         transcriber = aai.Transcriber()
         transcript = transcriber.transcribe(audio_path, config=config)
