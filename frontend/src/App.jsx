@@ -161,6 +161,11 @@ function AppInner() {
         setError("No credits remaining.")
         return
       }
+      if (res.status === 507) {
+        const data = await res.json()
+        setError(data.detail)
+        return
+      }
       const data = await res.json()
       setJobId(data.job_id)
       setStatus("pending")
@@ -332,16 +337,22 @@ function AppInner() {
           </div>
         )}
 
-        <button onClick={handleUpload} disabled={!files.length || uploading}
-          style={{
-            width: "100%", padding: 13, marginTop: 14, borderRadius: 8, border: "none",
-            background: (!files.length || uploading) ? "#f0f0f0" : "#185FA5",
-            color: (!files.length || uploading) ? "#aaa" : "white",
-            fontFamily: "'Outfit', sans-serif", fontSize: 15, fontWeight: 500,
-            cursor: (!files.length || uploading) ? "not-allowed" : "pointer"
-          }}>
-          {uploading ? "Uploading…" : "Transcribe"}
-        </button>
+        {(() => {
+          const busy = uploading || status === "pending" || status === "transcribing"
+          const disabled = !files.length || busy
+          return (
+            <button onClick={handleUpload} disabled={disabled}
+              style={{
+                width: "100%", padding: 13, marginTop: 14, borderRadius: 8, border: "none",
+                background: disabled ? "#f0f0f0" : "#185FA5",
+                color: disabled ? "#aaa" : "white",
+                fontFamily: "'Outfit', sans-serif", fontSize: 15, fontWeight: 500,
+                cursor: disabled ? "not-allowed" : "pointer"
+              }}>
+              {uploading ? "Uploading…" : "Transcribe"}
+            </button>
+          )
+        })()}
 
         {status && (
           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 8, marginTop: 10, background: statusBg[status], color: statusColor[status], fontSize: 13 }}>

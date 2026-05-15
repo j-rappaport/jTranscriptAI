@@ -576,6 +576,11 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
             const cur = items.indexOf(renameOriginal)
             const next = e.key === "ArrowDown" ? Math.min(cur + 1, items.length - 1) : Math.max(cur - 1, 0)
             selectRow(items[next])
+            return
+          }
+          if (!renameEditing && /^[0-9]$/.test(e.key)) {
+            const idx = parseInt(e.key)
+            if (idx < allSpeakers.length) selectRow(allSpeakers[idx])
           }
         }
 
@@ -655,8 +660,8 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
                       }}
                     />
                   ) : (
-                    <span style={{ color: isAddNew ? "#185FA5" : "#aaa", fontWeight: isAddNew ? 600 : 400, fontStyle: isAddNew ? "normal" : "italic" }}>
-                      + Add new speaker
+                    <span style={{ color: isAddNew ? "#185FA5" : "#aaa", fontWeight: isAddNew ? 600 : 400, fontStyle: "italic" }}>
+                      &lt;NEW&gt;
                     </span>
                   )}
                 </div>

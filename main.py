@@ -4,6 +4,8 @@ import re
 import struct
 import threading
 import asyncio
+import shutil
+import errno
 import psycopg2
 import psycopg2.extras
 import assemblyai as aai
@@ -210,11 +212,10 @@ def extract_case_name(filename: str) -> str:
     return m.group(1) if m else os.path.splitext(filename)[0]
 
 
-def delete_old_audio():
-    """Delete audio files from all previous jobs."""
+def delete_old_audio(user_id: str):
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT audio_path FROM jobs WHERE audio_path IS NOT NULL")
+            cur.execute("SELECT audio_path FROM jobs WHERE audio_path IS NOT NULL AND user_id=%s", (user_id,))
             rows = cur.fetchall()
             for row in rows:
                 path = row[0]
@@ -234,45 +235,54 @@ async def create_job(files: List[UploadFile] = File(...), user: str = Depends(re
     if not audio_files:
         raise HTTPException(status_code=400, detail="No audio files provided.")
 
-    delete_old_audio()
+    free_bytes = shutil.disk_usage(UPLOAD_DIR).free
+    if free_bytes < 150 * 1024 * 1024:
+        raise HTTPException(status_code=507, detail="Server storage is full — contact administrator.")
+
+    delete_old_audio(user)
     job_id = str(uuid.uuid4())
 
     needs_ffmpeg = len(audio_files) > 1 or any(f.filename.lower().endswith('.trm') for f in audio_files)
 
-    if needs_ffmpeg:
-        file_data = []
-        for i, f in enumerate(audio_files):
+    try:
+        if needs_ffmpeg:
+            file_data = []
+            for i, f in enumerate(audio_files):
+                content = await f.read()
+                ext = os.path.splitext(f.filename)[1]
+                temp_path = os.path.join(UPLOAD_DIR, f"{job_id}_{i}{ext}")
+                with open(temp_path, "wb") as fp:
+                    fp.write(content)
+                ts = read_tutc_timestamp(content[:512])
+                file_data.append((ts if ts is not None else float('inf'), f.filename, temp_path))
+
+            file_data.sort(key=lambda x: (x[0], x[1]))
+            sorted_paths = [d[2] for d in file_data]
+
+            audio_path = os.path.join(UPLOAD_DIR, f"{job_id}.mp3")
+            await asyncio.to_thread(merge_audio_files, sorted_paths, audio_path)
+
+            for p in sorted_paths:
+                if os.path.exists(p):
+                    os.remove(p)
+
+            if len(audio_files) == 1:
+                filename = file_data[0][1]
+            else:
+                case = extract_case_name(file_data[0][1])
+                filename = f"{case} ({len(audio_files)} files)"
+        else:
+            f = audio_files[0]
             content = await f.read()
             ext = os.path.splitext(f.filename)[1]
-            temp_path = os.path.join(UPLOAD_DIR, f"{job_id}_{i}{ext}")
-            with open(temp_path, "wb") as fp:
+            audio_path = os.path.join(UPLOAD_DIR, f"{job_id}{ext}")
+            with open(audio_path, "wb") as fp:
                 fp.write(content)
-            ts = read_tutc_timestamp(content[:512])
-            file_data.append((ts if ts is not None else float('inf'), f.filename, temp_path))
-
-        file_data.sort(key=lambda x: (x[0], x[1]))
-        sorted_paths = [d[2] for d in file_data]
-
-        audio_path = os.path.join(UPLOAD_DIR, f"{job_id}.mp3")
-        await asyncio.to_thread(merge_audio_files, sorted_paths, audio_path)
-
-        for p in sorted_paths:
-            if os.path.exists(p):
-                os.remove(p)
-
-        if len(audio_files) == 1:
-            filename = file_data[0][1]
-        else:
-            case = extract_case_name(file_data[0][1])
-            filename = f"{case} ({len(audio_files)} files)"
-    else:
-        f = audio_files[0]
-        content = await f.read()
-        ext = os.path.splitext(f.filename)[1]
-        audio_path = os.path.join(UPLOAD_DIR, f"{job_id}{ext}")
-        with open(audio_path, "wb") as fp:
-            fp.write(content)
-        filename = f.filename
+            filename = f.filename
+    except OSError as e:
+        if e.errno == errno.ENOSPC:
+            raise HTTPException(status_code=507, detail="Server storage is full — contact administrator.")
+        raise
 
     db_create_job(job_id, filename, audio_path, user)
 
