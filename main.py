@@ -366,7 +366,7 @@ async def create_checkout(body: dict, user: str = Depends(require_auth)):
         success_url=f"{app_url}/?payment=success",
         cancel_url=f"{app_url}/?payment=cancelled",
         client_reference_id=user,
-        metadata={"user_id": user, "credits_ms": str(pack["hours"] * 3_600_000)},
+        metadata={"user_id": user, "credits_ms": str(int(pack["hours"] * 3_600_000))},
     )
     return {"url": session.url}
 
