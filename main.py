@@ -3,6 +3,7 @@ import os
 import re
 import struct
 import threading
+import asyncio
 import psycopg2
 import psycopg2.extras
 import assemblyai as aai
@@ -244,7 +245,7 @@ async def create_job(files: List[UploadFile] = File(...), user: str = Depends(re
         sorted_paths = [d[2] for d in file_data]
 
         audio_path = os.path.join(UPLOAD_DIR, f"{job_id}.mp3")
-        merge_audio_files(sorted_paths, audio_path)
+        await asyncio.to_thread(merge_audio_files, sorted_paths, audio_path)
 
         for p in sorted_paths:
             if os.path.exists(p):
