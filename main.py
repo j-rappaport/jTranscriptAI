@@ -25,13 +25,6 @@ load_dotenv()
 
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 
-import subprocess
-try:
-    subprocess.run(["ffmpeg", "-version"], capture_output=True, check=True)
-    print("ffmpeg: OK")
-except (FileNotFoundError, subprocess.CalledProcessError):
-    print("WARNING: ffmpeg not found — TRM merging will fail")
-
 CREDIT_PACKS = {
     "5h":  {"hours": 5,  "price_cents": 1000, "label": "5 hours"},
     "15h": {"hours": 15, "price_cents": 2500, "label": "15 hours"},
