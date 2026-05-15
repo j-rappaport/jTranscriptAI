@@ -42,11 +42,6 @@ function InsertMenu({ onInsert, onDelete, onClose }) {
         background: "white", border: "0.5px solid #ddd", borderRadius: 8,
         boxShadow: "0 4px 12px rgba(0,0,0,0.08)", padding: "4px 0", minWidth: 160
       }}>
-        <button onClick={() => onInsert("utterance")} style={{ ...itemStyle, color: "#222" }}
-          onMouseEnter={e => e.target.style.background = "#f5f5f5"}
-          onMouseLeave={e => e.target.style.background = "none"}>
-          Insert Utterance
-        </button>
         <button onClick={() => onInsert("qa_toggle")} style={{ ...itemStyle, color: "#222" }}
           onMouseEnter={e => e.target.style.background = "#f5f5f5"}
           onMouseLeave={e => e.target.style.background = "none"}>
@@ -91,9 +86,7 @@ function computeBlockDisplay(blocks) {
 
 function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, isEditing, draft, textareaRef, onSelect, onStartEdit, onConfirmEdit, onCancelEdit, onDraftChange, onRenameOne, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete, onUpdateText }) {
   const isInQA = block.type === "qa_toggle" ? toggleState : !!role
-  const rowBg = isInQA
-    ? (sectionIndex % 2 === 0 ? "#dcfce7" : "#f0fdf4")
-    : (sectionIndex % 2 === 0 ? "white" : "#fafafa")
+  const rowBg = isSelected ? "#dcfce7" : (sectionIndex % 2 === 0 ? "white" : "#fafafa")
 
   const rowStyle = {
     display: "grid",
@@ -106,7 +99,7 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, i
     cursor: "default",
     position: "relative",
     ...(isSelected ? {
-      boxShadow: "inset 3px 0 0 #185FA5, 0 2px 10px rgba(24,95,165,0.10)",
+      boxShadow: "inset 3px 0 0 #16a34a",
       zIndex: 1,
     } : {})
   }
@@ -244,7 +237,6 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   const cancelledRef = useRef(false)
   const textareaRef = useRef(null)
   const deleteBlockRef = useRef(null)
-  const insertBlockRef = useRef(null)
   const modalRef = useRef(null)
   const renameTargetRef = useRef(null)
   useEffect(() => { blocksRef.current = blocks }, [blocks])
@@ -362,6 +354,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
       const after = renameTarget.index
       const newBlock = { type: "utterance", speaker: name, text: "", start_ms: blocks[after]?.end_ms ?? 0, end_ms: blocks[after]?.end_ms ?? 0 }
       updated = [...blocks.slice(0, after + 1), newBlock, ...blocks.slice(after + 1)]
+      setSelectedIndex(after + 1)
     } else {
       updated = blocks.map((b, i) => {
         if (b.type !== "utterance") return b
@@ -447,7 +440,6 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   }
 
   deleteBlockRef.current = deleteBlock
-  insertBlockRef.current = insertBlock
 
   function saveTranscript() {
     const { roles } = computeBlockDisplay(blocks)
