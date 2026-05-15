@@ -1,15 +1,19 @@
 import uuid
 import os
+import re
+import struct
 import threading
 import psycopg2
 import psycopg2.extras
 import assemblyai as aai
 import stripe
+import ffmpeg
 from fastapi import FastAPI, UploadFile, File, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from fastapi import Depends
+from typing import List
 import mimetypes
 import httpx
 from jose import jwt as jose_jwt, JWTError
@@ -174,6 +178,28 @@ def db_deduct_credits(user_id: str, ms: int):
             )
 
 
+def read_tutc_timestamp(data: bytes):
+    idx = data.find(b'TUTC')
+    if idx >= 0 and idx + 16 <= len(data):
+        return struct.unpack('<Q', data[idx+8:idx+16])[0]
+    return None
+
+def merge_audio_files(paths: list, output_path: str):
+    if len(paths) == 1:
+        (ffmpeg.input(paths[0]).audio
+         .output(output_path, acodec='libmp3lame', audio_bitrate='192k')
+         .run(overwrite_output=True, quiet=True))
+    else:
+        inputs = [ffmpeg.input(p) for p in paths]
+        (ffmpeg.concat(*[i.audio for i in inputs], v=0, a=1)
+         .output(output_path, acodec='libmp3lame', audio_bitrate='192k')
+         .run(overwrite_output=True, quiet=True))
+
+def extract_case_name(filename: str) -> str:
+    m = re.match(r'^(.+?)_\d{8}-\d{4}_', filename)
+    return m.group(1) if m else os.path.splitext(filename)[0]
+
+
 def delete_old_audio():
     """Delete audio files from all previous jobs."""
     with get_conn() as conn:
@@ -190,20 +216,55 @@ def delete_old_audio():
 
 
 @app.post("/jobs")
-async def create_job(file: UploadFile = File(...), user: str = Depends(require_auth)):
+async def create_job(files: List[UploadFile] = File(...), user: str = Depends(require_auth)):
     if db_get_credits(user) <= 0:
         raise HTTPException(status_code=402, detail="No credits remaining. Please purchase more to continue.")
 
-    delete_old_audio()  # clean up previous audio
+    audio_files = [f for f in files if not f.filename.lower().endswith('.trs')]
+    if not audio_files:
+        raise HTTPException(status_code=400, detail="No audio files provided.")
+
+    delete_old_audio()
     job_id = str(uuid.uuid4())
-    ext = os.path.splitext(file.filename)[1]
-    audio_path = os.path.join(UPLOAD_DIR, f"{job_id}{ext}")
 
-    with open(audio_path, "wb") as f:
-        content = await file.read()
-        f.write(content)
+    needs_ffmpeg = len(audio_files) > 1 or any(f.filename.lower().endswith('.trm') for f in audio_files)
 
-    db_create_job(job_id, file.filename, audio_path, user)
+    if needs_ffmpeg:
+        file_data = []
+        for i, f in enumerate(audio_files):
+            content = await f.read()
+            ext = os.path.splitext(f.filename)[1]
+            temp_path = os.path.join(UPLOAD_DIR, f"{job_id}_{i}{ext}")
+            with open(temp_path, "wb") as fp:
+                fp.write(content)
+            ts = read_tutc_timestamp(content[:512])
+            file_data.append((ts if ts is not None else float('inf'), f.filename, temp_path))
+
+        file_data.sort(key=lambda x: (x[0], x[1]))
+        sorted_paths = [d[2] for d in file_data]
+
+        audio_path = os.path.join(UPLOAD_DIR, f"{job_id}.mp3")
+        merge_audio_files(sorted_paths, audio_path)
+
+        for p in sorted_paths:
+            if os.path.exists(p):
+                os.remove(p)
+
+        if len(audio_files) == 1:
+            filename = file_data[0][1]
+        else:
+            case = extract_case_name(file_data[0][1])
+            filename = f"{case} ({len(audio_files)} files)"
+    else:
+        f = audio_files[0]
+        content = await f.read()
+        ext = os.path.splitext(f.filename)[1]
+        audio_path = os.path.join(UPLOAD_DIR, f"{job_id}{ext}")
+        with open(audio_path, "wb") as fp:
+            fp.write(content)
+        filename = f.filename
+
+    db_create_job(job_id, filename, audio_path, user)
 
     threading.Thread(
         target=run_transcription,

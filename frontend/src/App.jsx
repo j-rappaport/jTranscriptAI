@@ -50,7 +50,7 @@ const CREDIT_PACKS = [
 
 function AppInner() {
   const { getToken, isSignedIn, isLoaded } = useAuth()
-  const [file, setFile] = useState(null)
+  const [files, setFiles] = useState([])
   const [jobId, setJobId] = useState(null)
   const [status, setStatus] = useState(null)
   const [error, setError] = useState(null)
@@ -123,21 +123,33 @@ function AppInner() {
     }
   }
 
-  function handleFile(f) {
-    if (!f) return
-    setFile(f)
+  function parseFilenameTimestamp(name) {
+    const m = name.match(/_(\d{8}-\d{4})_/)
+    return m ? m[1] : name
+  }
+
+  function handleFiles(incoming) {
+    if (!incoming || incoming.length === 0) return
+    const arr = Array.from(incoming).filter(f => !f.name.toLowerCase().endsWith('.trs'))
+    if (arr.length === 0) return
+    const sorted = [...arr].sort((a, b) => {
+      const ta = parseFilenameTimestamp(a.name)
+      const tb = parseFilenameTimestamp(b.name)
+      return ta < tb ? -1 : ta > tb ? 1 : 0
+    })
+    setFiles(sorted)
     setJobId(null)
     setStatus(null)
     setError(null)
   }
 
   async function handleUpload() {
-    if (!file) return
+    if (!files.length) return
     setUploading(true)
     setError(null)
     try {
       const formData = new FormData()
-      formData.append("file", file)
+      for (const f of files) formData.append("files", f)
       const headers = await authHeaders()
       const res = await fetch(`${API}/jobs`, {
         method: "POST",
@@ -196,7 +208,7 @@ function AppInner() {
         setReviewing(false)
         setStatus(null)
         setJobId(null)
-        setFile(null)
+        setFiles([])
         fetchJobs()
       }}
     />
@@ -287,7 +299,7 @@ function AppInner() {
         <div
           onDragOver={e => { e.preventDefault(); setDragging(true) }}
           onDragLeave={() => setDragging(false)}
-          onDrop={e => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files[0]) }}
+          onDrop={e => { e.preventDefault(); setDragging(false); handleFiles(e.dataTransfer.files) }}
           onClick={() => document.getElementById("fileinput").click()}
           style={{
             border: `1.5px dashed ${dragging ? "#185FA5" : "#ccc"}`,
@@ -295,29 +307,38 @@ function AppInner() {
             background: dragging ? "#E6F1FB" : "transparent", transition: "all 0.15s"
           }}
         >
-          <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 4 }}>Drop audio file here</div>
+          <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 4 }}>Drop audio file(s) here</div>
           <div style={{ fontSize: 13, color: "#888" }}>
             or <span style={{ color: "#185FA5", fontWeight: 500 }}>browse to upload</span>
           </div>
-          <div style={{ fontSize: 12, color: "#aaa", marginTop: 6 }}>MP3 · WAV · M4A · MP4 · AAC · FLAC</div>
-          <input id="fileinput" type="file" accept=".mp3,.wav,.m4a,.mp4,.aac,.flac"
-            style={{ display: "none" }} onChange={e => handleFile(e.target.files[0])} />
+          <div style={{ fontSize: 12, color: "#aaa", marginTop: 6 }}>MP3 · WAV · M4A · MP4 · AAC · FLAC · TRM</div>
+          <input id="fileinput" type="file" multiple accept=".mp3,.wav,.m4a,.mp4,.aac,.flac,.trm,.trs"
+            style={{ display: "none" }} onChange={e => handleFiles(e.target.files)} />
         </div>
 
-        {file && (
-          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "#f7f7f7", borderRadius: 8, marginTop: 12 }}>
-            <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 13, flex: 1 }}>{file.name}</span>
-            <span style={{ fontSize: 12, color: "#888" }}>{(file.size / 1024 / 1024).toFixed(1)} MB</span>
+        {files.length > 0 && (
+          <div style={{ marginTop: 12, borderRadius: 8, overflow: "hidden", border: "0.5px solid #eee" }}>
+            {files.map((f, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", background: i % 2 === 0 ? "#f7f7f7" : "#f0f0f0" }}>
+                <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
+                <span style={{ fontSize: 11, color: "#888", flexShrink: 0 }}>{(f.size / 1024 / 1024).toFixed(1)} MB</span>
+              </div>
+            ))}
+            {files.length > 1 && (
+              <div style={{ padding: "6px 14px", background: "#e8e8e8", fontSize: 11, color: "#666" }}>
+                {files.length} files · {(files.reduce((s, f) => s + f.size, 0) / 1024 / 1024).toFixed(1)} MB total
+              </div>
+            )}
           </div>
         )}
 
-        <button onClick={handleUpload} disabled={!file || uploading}
+        <button onClick={handleUpload} disabled={!files.length || uploading}
           style={{
             width: "100%", padding: 13, marginTop: 14, borderRadius: 8, border: "none",
-            background: (!file || uploading) ? "#f0f0f0" : "#185FA5",
-            color: (!file || uploading) ? "#aaa" : "white",
+            background: (!files.length || uploading) ? "#f0f0f0" : "#185FA5",
+            color: (!files.length || uploading) ? "#aaa" : "white",
             fontFamily: "'Outfit', sans-serif", fontSize: 15, fontWeight: 500,
-            cursor: (!file || uploading) ? "not-allowed" : "pointer"
+            cursor: (!files.length || uploading) ? "not-allowed" : "pointer"
           }}>
           {uploading ? "Uploading…" : "Transcribe"}
         </button>
