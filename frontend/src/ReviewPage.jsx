@@ -11,9 +11,9 @@ const SHORTCUTS = [
   { keys: "Enter",      desc: "Edit selected block" },
   { keys: "Shift+Enter", desc: "New line while editing" },
   { keys: "Escape",     desc: "Cancel edit" },
+  { keys: "s",          desc: "Select speaker" },
+  { keys: "i",          desc: "Insert utterance below" },
   { keys: "x",          desc: "Delete selected block" },
-  { keys: "b",          desc: "Insert utterance below" },
-  { keys: "n",          desc: "Insert QA toggle below" },
   { keys: "p",          desc: "Play from selected block" },
 ]
 
@@ -230,7 +230,9 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   const [loading, setLoading] = useState(true)
   const [audioAvailable, setAudioAvailable] = useState(true)
   const [renameTarget, setRenameTarget] = useState(null)
+  const [renameOriginal, setRenameOriginal] = useState(null)
   const [renameValue, setRenameValue] = useState("")
+  const [renameEditing, setRenameEditing] = useState(false)
   const [insertMenuIndex, setInsertMenuIndex] = useState(null)
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [editingIndex, setEditingIndex] = useState(null)
@@ -243,7 +245,11 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   const textareaRef = useRef(null)
   const deleteBlockRef = useRef(null)
   const insertBlockRef = useRef(null)
+  const modalRef = useRef(null)
+  const renameTargetRef = useRef(null)
   useEffect(() => { blocksRef.current = blocks }, [blocks])
+  useEffect(() => { renameTargetRef.current = renameTarget }, [renameTarget])
+  useEffect(() => { if (renameTarget && modalRef.current) modalRef.current.focus() }, [renameTarget])
   useEffect(() => { selectedIndexRef.current = selectedIndex }, [selectedIndex])
   useEffect(() => {
     if (blocks) setSelectedIndex(i => Math.min(i, Math.max(0, blocks.length - 1)))
@@ -257,6 +263,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
 
   useEffect(() => {
     function handleKey(e) {
+      if (renameTargetRef.current) return
       const tag = document.activeElement?.tagName
       if (tag === "INPUT" || tag === "TEXTAREA") return
       if (e.key === "ArrowUp") {
@@ -269,12 +276,24 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
         const idx = selectedIndexRef.current
         const block = blocksRef.current?.[idx]
         if (block?.type === "utterance") { e.preventDefault(); cancelledRef.current = false; setDraft(block.text); setEditingIndex(idx) }
+      } else if (e.key === "s") {
+        const idx = selectedIndexRef.current
+        const block = blocksRef.current?.[idx]
+        if (block?.type === "utterance") {
+          setRenameTarget({ index: idx, mode: "rename" })
+          setRenameOriginal(block.speaker)
+          setRenameValue(block.speaker)
+          setRenameEditing(false)
+        }
+      } else if (e.key === "i") {
+        const idx = selectedIndexRef.current
+        const speaker = blocksRef.current?.[idx]?.speaker ?? ""
+        setRenameTarget({ index: idx, mode: "insert" })
+        setRenameOriginal(speaker)
+        setRenameValue(speaker)
+        setRenameEditing(false)
       } else if (e.key === "x") {
         deleteBlockRef.current?.(selectedIndexRef.current)
-      } else if (e.key === "b") {
-        insertBlockRef.current?.(selectedIndexRef.current, "utterance")
-      } else if (e.key === "n") {
-        insertBlockRef.current?.(selectedIndexRef.current, "qa_toggle")
       } else if (!audioRef.current) {
         return
       } else if (e.key === "p") {
@@ -321,21 +340,36 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   }, [jobId])
 
   function openRenameOne(index) {
-    setRenameTarget({ index, speaker: blocks[index].speaker })
+    setRenameTarget({ index, mode: "rename" })
+    setRenameOriginal(blocks[index].speaker)
     setRenameValue(blocks[index].speaker)
+    setRenameEditing(false)
   }
 
-  async function applyRename(mode) {
-    const newName = renameValue.trim().toUpperCase()
-    if (!newName) return
-    const updated = blocks.map((b, i) => {
-      if (b.type !== "utterance") return b
-      if (mode === "one" && i === renameTarget.index)
-        return { ...b, speaker: newName }
-      if (mode === "all" && b.speaker === renameTarget.speaker)
-        return { ...b, speaker: newName }
-      return b
-    })
+  function openInsert(index) {
+    const speaker = blocks[index]?.speaker ?? ""
+    setRenameTarget({ index, mode: "insert" })
+    setRenameOriginal(speaker)
+    setRenameValue(speaker)
+    setRenameEditing(false)
+  }
+
+  async function applyRenameOne() {
+    const name = renameValue.trim().toUpperCase()
+    if (!name) return
+    let updated
+    if (renameTarget.mode === "insert") {
+      const after = renameTarget.index
+      const newBlock = { type: "utterance", speaker: name, text: "", start_ms: blocks[after]?.end_ms ?? 0, end_ms: blocks[after]?.end_ms ?? 0 }
+      updated = [...blocks.slice(0, after + 1), newBlock, ...blocks.slice(after + 1)]
+    } else {
+      updated = blocks.map((b, i) => {
+        if (b.type !== "utterance") return b
+        if (renameOriginal && b.speaker === renameOriginal) return { ...b, speaker: name }
+        if (i === renameTarget.index) return { ...b, speaker: name }
+        return b
+      })
+    }
     setBlocks(updated)
     setRenameTarget(null)
     const headers = await authHeaders()
@@ -525,55 +559,129 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
       </div>
 
       {renameTarget && (() => {
-        const existingSpeakers = [...new Set(blocks.filter(b => b.type === "utterance").map(b => b.speaker))].filter(s => s !== renameTarget.speaker)
+        const allSpeakers = [...new Set(blocks.filter(b => b.type === "utterance").map(b => b.speaker))]
+        const isAddNew = renameOriginal === null
+
+        function selectRow(s) {
+          setRenameOriginal(s)
+          setRenameValue(s ?? "")
+          setRenameEditing(false)
+        }
+
+        function editRow(s) {
+          setRenameOriginal(s)
+          setRenameValue(s ?? "")
+          setRenameEditing(true)
+        }
+
+        function handleModalKey(e) {
+          e.stopPropagation()
+          if (e.key === "Escape") { setRenameTarget(null); return }
+          if (e.key === "Enter" && !renameEditing) { applyRenameOne(); return }
+          if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+            e.preventDefault()
+            const items = [...allSpeakers, null]
+            const cur = items.indexOf(renameOriginal)
+            const next = e.key === "ArrowDown" ? Math.min(cur + 1, items.length - 1) : Math.max(cur - 1, 0)
+            selectRow(items[next])
+          }
+        }
+
         return (
           <div style={{
             position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)",
             display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100
-          }}>
-            <div style={{ background: "white", borderRadius: 12, padding: 24, width: 360 }} onKeyDown={e => { e.stopPropagation(); if (e.key === "Enter") applyRename("one"); if (e.key === "Escape") setRenameTarget(null) }}>
-              <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 16 }}>
-                Rename speaker
+          }} onClick={() => setRenameTarget(null)}>
+            <div
+              ref={modalRef}
+              tabIndex={0}
+              style={{ background: "white", borderRadius: 12, padding: 24, width: 340, boxShadow: "0 8px 32px rgba(0,0,0,0.18)", outline: "none" }}
+              onClick={e => e.stopPropagation()}
+              onKeyDown={handleModalKey}
+            >
+              <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 16, color: "#111" }}>
+                {renameTarget.mode === "insert" ? "Insert utterance — select speaker" : "Select speaker"}
               </div>
-              {existingSpeakers.length > 0 && (
-                <div style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.06em", color: "#aaa", marginBottom: 8 }}>Existing speakers</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                    {existingSpeakers.map(s => (
-                      <button
-                        key={s}
-                        onClick={() => { setRenameValue(s); }}
-                        onKeyDown={e => { e.stopPropagation(); if (e.key === "Enter") applyRename("one"); if (e.key === "Escape") setRenameTarget(null) }}
-                        style={{
-                          padding: "4px 10px", borderRadius: 6, fontSize: 12, cursor: "pointer",
-                          border: renameValue === s ? "1.5px solid #185FA5" : "0.5px solid #ddd",
-                          background: renameValue === s ? "#E6F1FB" : "white",
-                          color: renameValue === s ? "#185FA5" : "#444", fontWeight: 500
-                        }}
-                      >
-                        {s}
-                      </button>
-                    ))}
-                  </div>
+              <div style={{ border: "0.5px solid #e5e5e5", borderRadius: 8, overflow: "hidden", marginBottom: 16 }}>
+                {allSpeakers.map(s => {
+                  const selected = !isAddNew && renameOriginal === s
+                  const editing = selected && renameEditing
+                  return (
+                    <div
+                      key={s}
+                      onClick={() => selectRow(s)}
+                      style={{
+                        display: "flex", alignItems: "center",
+                        padding: editing ? "6px 14px" : "10px 14px",
+                        fontSize: 13, cursor: "pointer",
+                        background: selected ? "#EBF3FB" : "white",
+                        borderBottom: "0.5px solid #f0f0f0",
+                      }}
+                    >
+                      {editing ? (
+                        <input
+                          autoFocus
+                          value={renameValue}
+                          onChange={e => setRenameValue(e.target.value)}
+                          onClick={e => e.stopPropagation()}
+                          onKeyDown={e => { e.stopPropagation(); if (e.key === "Enter") applyRenameOne(); if (e.key === "Escape") setRenameTarget(null) }}
+                          onBlur={() => modalRef.current?.focus()}
+                          style={{
+                            flex: 1, padding: "3px 8px", fontSize: 13, fontWeight: 500,
+                            borderRadius: 6, border: "1.5px solid #185FA5", outline: "none",
+                            boxSizing: "border-box", color: "#185FA5", background: "white"
+                          }}
+                        />
+                      ) : (
+                        <span style={{ color: selected ? "#185FA5" : "#222", fontWeight: selected ? 600 : 400 }}>{s}</span>
+                      )}
+                    </div>
+                  )
+                })}
+                <div
+                  onClick={() => selectRow(null)}
+                  style={{
+                    display: "flex", alignItems: "center",
+                    padding: isAddNew && renameEditing ? "6px 14px" : "10px 14px",
+                    fontSize: 13, cursor: "pointer",
+                    background: isAddNew ? "#EBF3FB" : "white",
+                  }}
+                >
+                  {isAddNew && renameEditing ? (
+                    <input
+                      autoFocus
+                      value={renameValue}
+                      onChange={e => setRenameValue(e.target.value)}
+                      onClick={e => e.stopPropagation()}
+                      onKeyDown={e => { e.stopPropagation(); if (e.key === "Enter") applyRenameOne(); if (e.key === "Escape") setRenameTarget(null) }}
+                      onBlur={() => modalRef.current?.focus()}
+                      placeholder="New speaker name"
+                      style={{
+                        flex: 1, padding: "3px 8px", fontSize: 13, fontWeight: 500,
+                        borderRadius: 6, border: "1.5px solid #185FA5", outline: "none",
+                        boxSizing: "border-box", color: "#185FA5", background: "white"
+                      }}
+                    />
+                  ) : (
+                    <span style={{ color: isAddNew ? "#185FA5" : "#aaa", fontWeight: isAddNew ? 600 : 400, fontStyle: isAddNew ? "normal" : "italic" }}>
+                      + Add new speaker
+                    </span>
+                  )}
                 </div>
-              )}
-              <div style={{ fontSize: 11, fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.06em", color: "#aaa", marginBottom: 8 }}>New name</div>
-              <input
-                autoFocus
-                value={renameValue}
-                onChange={e => setRenameValue(e.target.value)}
-                onKeyDown={e => { e.stopPropagation(); if (e.key === "Enter") applyRename("one"); if (e.key === "Escape") setRenameTarget(null) }}
-                style={{ width: "100%", padding: "8px 12px", fontSize: 14, borderRadius: 8, border: "0.5px solid #ddd", boxSizing: "border-box", marginBottom: 16 }}
-              />
-              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                <button onClick={() => setRenameTarget(null)} style={{ padding: "7px 16px", borderRadius: 8, border: "0.5px solid #ddd", background: "white", cursor: "pointer", color: "#222" }}>
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <button
+                  onClick={() => editRow(renameOriginal)}
+                  style={{ padding: "7px 16px", borderRadius: 8, border: "0.5px solid #ddd", background: "white", cursor: "pointer", color: "#222", fontSize: 13 }}
+                >
+                  Edit
+                </button>
+                <div style={{ flex: 1 }} />
+                <button onClick={() => setRenameTarget(null)} style={{ padding: "7px 16px", borderRadius: 8, border: "0.5px solid #ddd", background: "white", cursor: "pointer", color: "#222", fontSize: 13 }}>
                   Cancel
                 </button>
-                <button onClick={() => applyRename("one")} style={{ padding: "7px 16px", borderRadius: 8, border: "0.5px solid #185FA5", background: "white", color: "#185FA5", cursor: "pointer" }}>
-                  Rename
-                </button>
-                <button onClick={() => applyRename("all")} style={{ padding: "7px 16px", borderRadius: 8, border: "none", background: "#185FA5", color: "white", cursor: "pointer" }}>
-                  Rename All
+                <button onClick={applyRenameOne} style={{ padding: "7px 16px", borderRadius: 8, border: "none", background: "#185FA5", color: "white", cursor: "pointer", fontSize: 13 }}>
+                  OK
                 </button>
               </div>
             </div>
