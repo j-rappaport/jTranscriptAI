@@ -42,7 +42,60 @@ function SignInPage() {
   )
 }
 
+const DEFAULT_BOOST_WORDS = `objection
+sustained
+overruled
+stipulation
+stipulate
+deponent
+deposition
+plaintiff
+defendant
+counsel
+attorney
+bailiff
+voir dire
+subpoena
+affidavit
+hearsay
+foundation
+speculation
+relevance
+sidebar
+recess
+redirect
+cross-examination
+direct examination
+transcript
+docket
+motion
+sworn
+affirmed
+perjury
+interrogatory
+discovery
+continuance
+indiscernible
+inaudible
+damages
+liability
+negligence
+breach
+statute
+jurisdiction
+verdict
+judgment
+ruling
+prosecutor
+defense attorney
+court reporter
+your honor
+the record
+exhibit
+testimony`
+
 const CREDIT_PACKS = [
+  { id: "30m", label: "30 min",   price: "$1"  },
   { id: "5h",  label: "5 hours",  price: "$10" },
   { id: "15h", label: "15 hours", price: "$25" },
   { id: "50h", label: "50 hours", price: "$70" },
@@ -62,6 +115,10 @@ function AppInner() {
   const [showBuyCredits, setShowBuyCredits] = useState(false)
   const [buyingPack, setBuyingPack] = useState(null)
   const [paymentNotice, setPaymentNotice] = useState(null)
+  const [boostWords, setBoostWords] = useState(() => localStorage.getItem("jt_boost_words") ?? DEFAULT_BOOST_WORDS)
+  const [vocabOpen, setVocabOpen] = useState(false)
+
+  useEffect(() => { localStorage.setItem("jt_boost_words", boostWords) }, [boostWords])
 
   useEffect(() => {
     if (isSignedIn) {
@@ -150,6 +207,7 @@ function AppInner() {
     try {
       const formData = new FormData()
       for (const f of files) formData.append("files", f)
+      formData.append("word_boost", boostWords)
       const headers = await authHeaders()
       const res = await fetch(`${API}/jobs`, {
         method: "POST",
@@ -292,7 +350,7 @@ function AppInner() {
                 <div style={{ fontSize: 14, fontWeight: 500, color: "#185FA5" }}>{pack.label}</div>
                 <div style={{ fontSize: 18, fontWeight: 600, margin: "4px 0" }}>{pack.price}</div>
                 <div style={{ fontSize: 11, color: "#aaa" }}>
-                  {pack.id === "5h" ? "$2.00/hr" : pack.id === "15h" ? "$1.67/hr" : "$1.40/hr"}
+                  {pack.id === "30m" ? "$2.00/hr" : pack.id === "5h" ? "$2.00/hr" : pack.id === "15h" ? "$1.67/hr" : "$1.40/hr"}
                 </div>
               </button>
             ))}
@@ -316,7 +374,7 @@ function AppInner() {
           <div style={{ fontSize: 13, color: "#888" }}>
             or <span style={{ color: "#185FA5", fontWeight: 500 }}>browse to upload</span>
           </div>
-          <div style={{ fontSize: 12, color: "#aaa", marginTop: 6 }}>MP3 · WAV · M4A · MP4 · AAC · FLAC · TRM</div>
+          <div style={{ fontSize: 12, color: "#aaa", marginTop: 6 }}>MP3 · TRM</div>
           <input id="fileinput" type="file" multiple accept=".mp3,.wav,.m4a,.mp4,.aac,.flac,.trm,.trs"
             style={{ display: "none" }} onChange={e => handleFiles(e.target.files)} />
         </div>
@@ -336,6 +394,34 @@ function AppInner() {
             )}
           </div>
         )}
+
+        <div style={{ marginTop: 14, border: "0.5px solid #eee", borderRadius: 8, overflow: "hidden" }}>
+          <div
+            onClick={() => setVocabOpen(v => !v)}
+            style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 14px", cursor: "pointer", background: "#fafafa" }}
+          >
+            <span style={{ fontSize: 12, fontWeight: 500, color: "#555" }}>Vocabulary</span>
+            <span style={{ fontSize: 11, color: "#aaa" }}>
+              {boostWords.split('\n').filter(w => w.trim()).length} words {vocabOpen ? "▲" : "▼"}
+            </span>
+          </div>
+          {vocabOpen && (
+            <div style={{ padding: "8px 14px", borderTop: "0.5px solid #eee" }}>
+              <textarea
+                value={boostWords}
+                onChange={e => setBoostWords(e.target.value)}
+                rows={10}
+                style={{
+                  width: "100%", fontSize: 13, fontFamily: "'Outfit', sans-serif",
+                  border: "0.5px solid #ddd", borderRadius: 6, padding: "8px 10px",
+                  boxSizing: "border-box", resize: "vertical", lineHeight: 1.6,
+                  color: "#333", background: "white"
+                }}
+              />
+              <div style={{ fontSize: 11, color: "#aaa", marginTop: 4 }}>One word or phrase per line · improves transcription accuracy</div>
+            </div>
+          )}
+        </div>
 
         {(() => {
           const busy = uploading || status === "pending" || status === "transcribing"

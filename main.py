@@ -11,7 +11,7 @@ import psycopg2.extras
 import assemblyai as aai
 import stripe
 import ffmpeg
-from fastapi import FastAPI, UploadFile, File, HTTPException, Header, Request
+from fastapi import FastAPI, UploadFile, File, HTTPException, Header, Request, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
@@ -28,9 +28,10 @@ load_dotenv()
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 
 CREDIT_PACKS = {
-    "5h":  {"hours": 5,  "price_cents": 1000, "label": "5 hours"},
-    "15h": {"hours": 15, "price_cents": 2500, "label": "15 hours"},
-    "50h": {"hours": 50, "price_cents": 7000, "label": "50 hours"},
+    "30m": {"hours": 0.5, "price_cents": 100,  "label": "30 minutes"},
+    "5h":  {"hours": 5,   "price_cents": 1000, "label": "5 hours"},
+    "15h": {"hours": 15,  "price_cents": 2500, "label": "15 hours"},
+    "50h": {"hours": 50,  "price_cents": 7000, "label": "50 hours"},
 }
 
 app = FastAPI(title="jTranscript")
@@ -227,7 +228,7 @@ def delete_old_audio(user_id: str):
 
 
 @app.post("/jobs")
-async def create_job(files: List[UploadFile] = File(...), user: str = Depends(require_auth)):
+async def create_job(files: List[UploadFile] = File(...), word_boost: str = Form(default=""), user: str = Depends(require_auth)):
     if db_get_credits(user) <= 0:
         raise HTTPException(status_code=402, detail="No credits remaining. Please purchase more to continue.")
 
@@ -286,9 +287,11 @@ async def create_job(files: List[UploadFile] = File(...), user: str = Depends(re
 
     db_create_job(job_id, filename, audio_path, user)
 
+    boost_words = [w.strip() for w in word_boost.splitlines() if w.strip()]
+
     threading.Thread(
         target=run_transcription,
-        args=(job_id, audio_path, user),
+        args=(job_id, audio_path, user, boost_words),
         daemon=True
     ).start()
 
@@ -389,14 +392,14 @@ async def stripe_webhook(request: Request):
 # Transcription
 # ---------------------------------------------------------------------------
 
-def run_transcription(job_id: str, audio_path: str, user_id: str):
+def run_transcription(job_id: str, audio_path: str, user_id: str, boost_words: list = []):
     try:
         db_update_status(job_id, "transcribing")
 
-        # Note: speech_models takes a list, not speech_model
         config = aai.TranscriptionConfig(
             speaker_labels=True,
             speech_models=["universal-3-pro", "universal-2"],
+            word_boost=boost_words if boost_words else None,
             # prompt=(
             #     "Always: Transcribe speech exactly as heard. If uncertain or audio is unclear, mark as (indiscernible). "
             #     "After the first output, review the transcript again. Pay close attention to hallucinations, misspellings, or errors, "

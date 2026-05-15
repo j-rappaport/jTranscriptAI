@@ -7,6 +7,7 @@ const ABBREVS = /\b(Mr|Mrs|Ms|Dr|Jr|Sr|vs|etc|No|St)\.  /gi
 const SHORTCUTS = [
   { keys: "Space",      desc: "Play / Pause" },
   { keys: "← →",       desc: "Skip ±4 seconds" },
+  { keys: "[ ]",        desc: "Slow down / speed up" },
   { keys: "↑ ↓",       desc: "Move selection" },
   { keys: "Enter",      desc: "Edit selected block" },
   { keys: "Shift+Enter", desc: "New line while editing" },
@@ -16,6 +17,8 @@ const SHORTCUTS = [
   { keys: "x",          desc: "Delete selected block" },
   { keys: "p",          desc: "Play from selected block" },
 ]
+
+const SPEED_PRESETS = [0.5, 0.75, 1, 1.25, 1.5]
 
 function normalizeSentenceSpacing(text) {
   return text
@@ -231,6 +234,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   const [editingIndex, setEditingIndex] = useState(null)
   const [draft, setDraft] = useState("")
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  const [playbackRate, setPlaybackRate] = useState(1)
   const audioRef = useRef(null)
   const blocksRef = useRef(null)
   const selectedIndexRef = useRef(0)
@@ -239,6 +243,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   const deleteBlockRef = useRef(null)
   const modalRef = useRef(null)
   const renameTargetRef = useRef(null)
+  useEffect(() => { if (audioRef.current) audioRef.current.playbackRate = playbackRate }, [playbackRate])
   useEffect(() => { blocksRef.current = blocks }, [blocks])
   useEffect(() => { renameTargetRef.current = renameTarget }, [renameTarget])
   useEffect(() => { if (renameTarget && modalRef.current) modalRef.current.focus() }, [renameTarget])
@@ -286,6 +291,10 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
         setRenameEditing(false)
       } else if (e.key === "x") {
         deleteBlockRef.current?.(selectedIndexRef.current)
+      } else if (e.key === "[") {
+        setPlaybackRate(r => SPEED_PRESETS[Math.max(0, SPEED_PRESETS.indexOf(r) - 1)])
+      } else if (e.key === "]") {
+        setPlaybackRate(r => SPEED_PRESETS[Math.min(SPEED_PRESETS.length - 1, SPEED_PRESETS.indexOf(r) + 1)])
       } else if (!audioRef.current) {
         return
       } else if (e.key === "p") {
@@ -463,6 +472,20 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     URL.revokeObjectURL(url)
   }
 
+  function saveBlob() {
+    const text = blocks
+      .filter(b => b.type === "utterance")
+      .map(b => normalizeSentenceSpacing(b.text))
+      .join("  ")
+    const blob = new Blob([text], { type: "text/plain" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `${jobId}_blob.txt`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   const { roles, toggleStates, sectionIndices } = loading ? { roles: [], toggleStates: [], sectionIndices: [] } : computeBlockDisplay(blocks)
 
   if (loading) return (
@@ -488,6 +511,9 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
           <button onClick={onBack} style={{ fontSize: 13, padding: "7px 16px", borderRadius: 8, border: "0.5px solid #ddd", background: "white", cursor: "pointer", color: "#555" }}>
             ← New job
           </button>
+          <button onClick={saveBlob} style={{ fontSize: 13, padding: "7px 16px", borderRadius: 8, border: "0.5px solid #ddd", background: "white", color: "#555", cursor: "pointer" }}>
+            💾 Save blob
+          </button>
           <button onClick={saveTranscript} style={{ fontSize: 13, padding: "7px 16px", borderRadius: 8, border: "none", background: "#185FA5", color: "white", cursor: "pointer" }}>
             💾 Save .txt
           </button>
@@ -504,6 +530,23 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     />
   : <div style={{ fontSize: 13, color: "#aaa", padding: "8px 0" }}>Audio not available</div>
 }
+        {audioAvailable && (
+          <div style={{ display: "flex", gap: 4, marginTop: 8, alignItems: "center" }}>
+            <span style={{ fontSize: 11, color: "#aaa", marginRight: 4 }}>Speed</span>
+            {SPEED_PRESETS.map(r => (
+              <button
+                key={r}
+                onClick={() => setPlaybackRate(r)}
+                style={{
+                  fontSize: 11, padding: "2px 8px", borderRadius: 4, cursor: "pointer",
+                  border: playbackRate === r ? "1.5px solid #185FA5" : "0.5px solid #ddd",
+                  background: playbackRate === r ? "#E6F1FB" : "white",
+                  color: playbackRate === r ? "#185FA5" : "#555", fontWeight: playbackRate === r ? 600 : 400
+                }}
+              >{r}×</button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div style={{ background: "white", border: "0.5px solid #e5e5e5", borderRadius: 12, overflow: "hidden" }}>
