@@ -33,6 +33,15 @@ CREDIT_PACKS = {
 
 app = FastAPI(title="jTranscript")
 
+@app.on_event("startup")
+async def mark_stuck_jobs():
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE jobs SET status='error', error='Interrupted — server restarted during transcription' "
+                "WHERE status IN ('pending', 'transcribing')"
+            )
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
