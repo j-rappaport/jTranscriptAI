@@ -223,6 +223,7 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, i
 
 export default function ReviewPage({ jobId, onBack, authHeaders }) {
   const [blocks, setBlocks] = useState(null)
+  const [jobFilename, setJobFilename] = useState("")
   const [loading, setLoading] = useState(true)
   const [audioAvailable, setAudioAvailable] = useState(true)
   const [renameTarget, setRenameTarget] = useState(null)
@@ -331,6 +332,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
         .then(r => r.json())
         .then(data => {
           setBlocks(data.blocks.map(b => b.type ? b : { ...b, type: "utterance" }))
+          setJobFilename(data.filename ? data.filename.replace(/\.[^.]+$/, "") : jobId)
           setLoading(false)
         })
       fetch(`${API}/jobs/${jobId}/audio-available`, { headers })
@@ -467,7 +469,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
-    a.download = `${jobId}_transcript.txt`
+    a.download = `${jobFilename}_transcript.txt`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -481,7 +483,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
-    a.download = `${jobId}_blob.txt`
+    a.download = `${jobFilename}_blob.txt`
     a.click()
     URL.revokeObjectURL(url)
   }

@@ -267,11 +267,7 @@ async def create_job(files: List[UploadFile] = File(...), word_boost: str = Form
                 if os.path.exists(p):
                     os.remove(p)
 
-            if len(audio_files) == 1:
-                filename = file_data[0][1]
-            else:
-                case = extract_case_name(file_data[0][1])
-                filename = f"{case} ({len(audio_files)} files)"
+            filename = extract_case_name(file_data[0][1])
         else:
             f = audio_files[0]
             content = await f.read()
