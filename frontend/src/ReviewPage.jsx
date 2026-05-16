@@ -11,6 +11,7 @@ const SHORTCUTS = [
   { keys: "↑ ↓",       desc: "Move selection" },
   { keys: "Enter",      desc: "Edit selected block" },
   { keys: "Shift+Enter", desc: "New line while editing" },
+  { keys: "Ctrl+i",     desc: "Split utterance at cursor" },
   { keys: "Escape",     desc: "Cancel edit" },
   { keys: "s",          desc: "Select speaker" },
   { keys: "i",          desc: "Insert utterance below" },
@@ -87,7 +88,7 @@ function computeBlockDisplay(blocks) {
   return { roles, toggleStates, sectionIndices }
 }
 
-function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, isEditing, draft, textareaRef, onSelect, onStartEdit, onConfirmEdit, onCancelEdit, onDraftChange, onRenameOne, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete, onUpdateText }) {
+function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, isEditing, draft, textareaRef, onSelect, onStartEdit, onConfirmEdit, onCancelEdit, onDraftChange, onRenameOne, onSplitHere, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete, onUpdateText }) {
   const isInQA = block.type === "qa_toggle" ? toggleState : !!role
   const rowBg = isSelected ? "#dcfce7" : (sectionIndex % 2 === 0 ? "white" : "#fafafa")
 
@@ -181,6 +182,12 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, i
             onBlur={onConfirmEdit}
             onKeyDown={e => {
               e.stopPropagation()
+              if (e.key === "i" && e.ctrlKey) {
+                e.preventDefault()
+                const cursor = e.target.selectionStart
+                onSplitHere(index, draft.slice(0, cursor), draft.slice(cursor))
+                return
+              }
               if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onConfirmEdit() }
               if (e.key === "Escape") onCancelEdit()
             }}
@@ -426,6 +433,28 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     })
   }
 
+  async function splitUtterance(index, beforeText, afterText) {
+    cancelledRef.current = true
+    const speaker = blocks[index].speaker
+    const newBlock = { type: "utterance", speaker, text: afterText, start_ms: blocks[index]?.end_ms ?? 0, end_ms: blocks[index]?.end_ms ?? 0 }
+    const updated = blocks.map((b, i) => i === index ? { ...b, text: beforeText } : b)
+    const withNew = [...updated.slice(0, index + 1), newBlock, ...updated.slice(index + 1)]
+    setBlocks(withNew)
+    setEditingIndex(null)
+    setSelectedIndex(index + 1)
+    const headers = await authHeaders()
+    fetch(`${API}/jobs/${jobId}/blocks`, {
+      method: "PUT",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ blocks: withNew }),
+    })
+    setTimeout(() => {
+      cancelledRef.current = false
+      setDraft(afterText)
+      setEditingIndex(index + 1)
+    }, 0)
+  }
+
   async function insertBlock(afterIndex, type) {
     const cur = blocksRef.current
     if (!cur) return
@@ -574,6 +603,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
             toggleState={toggleStates[i]}
             sectionIndex={sectionIndices[i]}
             onRenameOne={openRenameOne}
+            onSplitHere={splitUtterance}
             audioRef={audioRef}
             audioAvailable={audioAvailable}
             insertMenuOpen={insertMenuIndex === i}
