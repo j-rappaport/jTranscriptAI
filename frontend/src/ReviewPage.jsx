@@ -247,6 +247,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   const blocksRef = useRef(null)
   const selectedIndexRef = useRef(0)
   const cancelledRef = useRef(false)
+  const draftCacheRef = useRef({})
   const textareaRef = useRef(null)
   const deleteBlockRef = useRef(null)
   const modalRef = useRef(null)
@@ -280,7 +281,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
       } else if (e.key === "Enter") {
         const idx = selectedIndexRef.current
         const block = blocksRef.current?.[idx]
-        if (block?.type === "utterance") { e.preventDefault(); cancelledRef.current = false; setDraft(block.text); setEditingIndex(idx) }
+        if (block?.type === "utterance") { e.preventDefault(); cancelledRef.current = false; setDraft(draftCacheRef.current[idx] ?? block.text); setEditingIndex(idx) }
       } else if (e.key === "s") {
         const idx = selectedIndexRef.current
         const block = blocksRef.current?.[idx]
@@ -393,7 +394,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
 
   function startEditBlock(index) {
     cancelledRef.current = false
-    setDraft(blocks[index].text)
+    setDraft(draftCacheRef.current[index] ?? blocks[index].text)
     setEditingIndex(index)
   }
 
@@ -405,8 +406,14 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   function confirmEdit() {
     if (cancelledRef.current) return
     cancelledRef.current = true
+    delete draftCacheRef.current[editingIndex]
     updateText(editingIndex, draft)
     setEditingIndex(null)
+  }
+
+  function handleDraftChange(value) {
+    setDraft(value)
+    if (editingIndex !== null) draftCacheRef.current[editingIndex] = value
   }
 
   async function updateText(index, newText) {
@@ -435,6 +442,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
 
   async function splitUtterance(index, beforeText, afterText) {
     cancelledRef.current = true
+    delete draftCacheRef.current[index]
     const speaker = blocks[index].speaker
     const newBlock = { type: "utterance", speaker, text: afterText, start_ms: blocks[index]?.end_ms ?? 0, end_ms: blocks[index]?.end_ms ?? 0 }
     const updated = blocks.map((b, i) => i === index ? { ...b, text: beforeText } : b)
@@ -619,7 +627,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
             onStartEdit={() => startEditBlock(i)}
             onConfirmEdit={confirmEdit}
             onCancelEdit={cancelEdit}
-            onDraftChange={setDraft}
+            onDraftChange={handleDraftChange}
             onUpdateText={updateText}
           />
         ))}
