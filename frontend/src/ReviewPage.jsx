@@ -254,7 +254,7 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, i
         {role}
       </span>
 
-      <div>
+      <div onClick={isEditing ? undefined : onStartEdit} style={{ cursor: isEditing ? "default" : "text", minHeight: 28 }}>
         {isEditing ? (
           <textarea
             ref={textareaRef}
@@ -280,11 +280,7 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, i
             }}
           />
         ) : (
-          <span
-            onClick={onStartEdit}
-            title="Click to edit"
-            style={{ fontSize: 13, color: "#222", lineHeight: 1.6, cursor: "text" }}
-          >{block.text}</span>
+          <span style={{ fontSize: 13, color: "#222", lineHeight: 1.6 }}>{block.text}</span>
         )}
       </div>
 
