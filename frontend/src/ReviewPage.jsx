@@ -51,6 +51,11 @@ function InsertMenu({ onInsert, onDelete, onClose }) {
           onMouseLeave={e => e.target.style.background = "none"}>
           Insert QA Toggle
         </button>
+        <button onClick={() => onInsert("witness_sworn")} style={{ ...itemStyle, color: "#222" }}
+          onMouseEnter={e => e.target.style.background = "#f5f5f5"}
+          onMouseLeave={e => e.target.style.background = "none"}>
+          Insert Witness Sworn
+        </button>
         <div style={{ borderTop: "0.5px solid #f0f0f0", margin: "4px 0" }} />
         <button onClick={onDelete} style={{ ...itemStyle, color: "#ef4444" }}
           onMouseEnter={e => e.target.style.background = "#fef2f2"}
@@ -143,6 +148,54 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, i
         </span>
         <span />
         <span />
+        {insertBtn}
+      </div>
+    )
+  }
+
+  if (block.type === "witness_sworn") {
+    const witnessRowStyle = {
+      ...rowStyle,
+      background: isSelected ? "#dcfce7" : "#fffbeb",
+      boxShadow: isSelected ? "inset 3px 0 0 #16a34a" : "inset 3px 0 0 #d97706",
+      zIndex: isSelected ? 1 : undefined,
+    }
+    return (
+      <div style={witnessRowStyle} onClick={onSelect} data-block-index={index}>
+        <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: "#888", paddingTop: 2 }}>
+          {msToTimecode(block.start_ms)}
+        </span>
+        <span style={{ fontSize: 11, fontWeight: 700, color: "#92400e", textTransform: "uppercase", letterSpacing: "0.06em", paddingTop: 2 }}>
+          Witness Sworn
+        </span>
+        <span />
+        <div>
+          {isEditing ? (
+            <textarea
+              ref={textareaRef}
+              autoFocus
+              value={draft}
+              onChange={e => onDraftChange(e.target.value)}
+              onBlur={onConfirmEdit}
+              onKeyDown={e => {
+                e.stopPropagation()
+                if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onConfirmEdit() }
+                if (e.key === "Escape") onCancelEdit()
+              }}
+              style={{
+                width: "100%", fontSize: 13, lineHeight: 1.6, fontFamily: "inherit",
+                padding: "4px 8px", borderRadius: 6, border: "0.5px solid #d97706",
+                resize: "none", boxSizing: "border-box", overflow: "hidden"
+              }}
+            />
+          ) : (
+            <span
+              onClick={onStartEdit}
+              title="Click to edit"
+              style={{ fontSize: 13, color: block.text ? "#222" : "#bbb", lineHeight: 1.6, cursor: "text", fontStyle: block.text ? "normal" : "italic" }}
+            >{block.text || "click to add text"}</span>
+          )}
+        </div>
         {insertBtn}
       </div>
     )
@@ -281,7 +334,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
       } else if (e.key === "Enter") {
         const idx = selectedIndexRef.current
         const block = blocksRef.current?.[idx]
-        if (block?.type === "utterance") { e.preventDefault(); cancelledRef.current = false; setDraft(draftCacheRef.current[idx] ?? block.text); setEditingIndex(idx) }
+        if (block?.type === "utterance" || block?.type === "witness_sworn") { e.preventDefault(); cancelledRef.current = false; setDraft(draftCacheRef.current[idx] ?? block.text); setEditingIndex(idx) }
       } else if (e.key === "s") {
         const idx = selectedIndexRef.current
         const block = blocksRef.current?.[idx]
@@ -469,6 +522,8 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     let newBlock
     if (type === "qa_toggle") {
       newBlock = { type: "qa_toggle" }
+    } else if (type === "witness_sworn") {
+      newBlock = { type: "witness_sworn", text: "", start_ms: cur[afterIndex]?.end_ms ?? 0, end_ms: cur[afterIndex]?.end_ms ?? 0 }
     } else {
       newBlock = { type: "utterance", speaker: "UNKNOWN SPEAKER", text: "", start_ms: cur[afterIndex]?.end_ms ?? 0, end_ms: cur[afterIndex]?.end_ms ?? 0 }
     }
