@@ -21,6 +21,45 @@ const SHORTCUTS = [
 
 const SPEED_PRESETS = [0.5, 0.75, 1, 1.25, 1.5]
 
+const META_BLOCKS = {
+  witness_sworn: {
+    label: "Witness Sworn",
+    fields: ["NAME"],
+    template: f => {
+      const name = (f.NAME || "").trim().toUpperCase() || "______"
+      return `_${name}_\nWas thereupon called as a witness on behalf of the State; and, having been first duly sworn, was examined and testified as follows:`
+    },
+  },
+  witness_sworn_gj: {
+    label: "Witness Sworn (GJ)",
+    fields: ["NAME"],
+    template: f => {
+      const name = (f.NAME || "").trim().toUpperCase() || "______"
+      return `_${name}_\nWas thereupon called as a witness; and, having been first duly sworn, was examined and testified as follows:`
+    },
+  },
+  pause_in_proceedings: {
+    label: "Pause in Proceedings",
+    fields: ["START", "END"],
+    template: f => `(Pause in proceedings, ${f.START || "___"} - ${f.END || "___"})`,
+  },
+  whispered_discussion: {
+    label: "Whispered Discussion",
+    fields: ["START", "END"],
+    template: f => `(Whispered discussion, off the record, ${f.START || "___"} - ${f.END || "___"})`,
+  },
+  exhibit_received: {
+    label: "Exhibit Received",
+    fields: ["ROLE", "NUMBER"],
+    template: f => `(${f.ROLE || "___"}'s Exhibit No. ${f.NUMBER || "___"} received.)`,
+  },
+  examination: {
+    label: "Examination",
+    fields: ["TEXT"],
+    template: f => f.TEXT || "",
+  },
+}
+
 function normalizeSentenceSpacing(text) {
   return text
     .replace(/([.?])\s*/g, "$1  ")
@@ -51,11 +90,14 @@ function InsertMenu({ onInsert, onDelete, onClose }) {
           onMouseLeave={e => e.target.style.background = "none"}>
           Insert QA Toggle
         </button>
-        <button onClick={() => onInsert("witness_sworn")} style={{ ...itemStyle, color: "#222" }}
-          onMouseEnter={e => e.target.style.background = "#f5f5f5"}
-          onMouseLeave={e => e.target.style.background = "none"}>
-          Insert Witness Sworn
-        </button>
+        <div style={{ borderTop: "0.5px solid #f0f0f0", margin: "4px 0" }} />
+        {Object.entries(META_BLOCKS).map(([type, meta]) => (
+          <button key={type} onClick={() => onInsert(type)} style={{ ...itemStyle, color: "#222" }}
+            onMouseEnter={e => e.target.style.background = "#f5f5f5"}
+            onMouseLeave={e => e.target.style.background = "none"}>
+            Insert {meta.label}
+          </button>
+        ))}
         <div style={{ borderTop: "0.5px solid #f0f0f0", margin: "4px 0" }} />
         <button onClick={onDelete} style={{ ...itemStyle, color: "#ef4444" }}
           onMouseEnter={e => e.target.style.background = "#fef2f2"}
@@ -93,7 +135,7 @@ function computeBlockDisplay(blocks) {
   return { roles, toggleStates, sectionIndices }
 }
 
-function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, isEditing, draft, textareaRef, onSelect, onStartEdit, onConfirmEdit, onCancelEdit, onDraftChange, onRenameOne, onSplitHere, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete, onUpdateText }) {
+function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, isEditing, draft, textareaRef, onSelect, onStartEdit, onConfirmEdit, onCancelEdit, onDraftChange, onRenameOne, onSplitHere, onMetaFieldChange, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete, onUpdateText }) {
   const isInQA = block.type === "qa_toggle" ? toggleState : !!role
   const rowBg = isSelected ? "#dcfce7" : (sectionIndex % 2 === 0 ? "white" : "#fafafa")
 
@@ -153,48 +195,38 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, i
     )
   }
 
-  if (block.type === "witness_sworn") {
-    const witnessRowStyle = {
-      ...rowStyle,
-      background: isSelected ? "#dcfce7" : "#fffbeb",
-      boxShadow: isSelected ? "inset 3px 0 0 #16a34a" : "inset 3px 0 0 #d97706",
-      zIndex: isSelected ? 1 : undefined,
-    }
+  const meta = META_BLOCKS[block.type]
+  if (meta) {
+    const fields = block.fields || {}
     return (
-      <div style={witnessRowStyle} onClick={onSelect} data-block-index={index}>
-        <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: "#888", paddingTop: 2 }}>
-          {msToTimecode(block.start_ms)}
-        </span>
-        <span style={{ fontSize: 11, fontWeight: 700, color: "#92400e", textTransform: "uppercase", letterSpacing: "0.06em", paddingTop: 2 }}>
-          Witness Sworn
-        </span>
+      <div style={rowStyle} onClick={onSelect} data-block-index={index}>
+        <span />
+        <span />
         <span />
         <div>
-          {isEditing ? (
-            <textarea
-              ref={textareaRef}
-              autoFocus
-              value={draft}
-              onChange={e => onDraftChange(e.target.value)}
-              onBlur={onConfirmEdit}
-              onKeyDown={e => {
-                e.stopPropagation()
-                if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onConfirmEdit() }
-                if (e.key === "Escape") onCancelEdit()
-              }}
-              style={{
-                width: "100%", fontSize: 13, lineHeight: 1.6, fontFamily: "inherit",
-                padding: "4px 8px", borderRadius: 6, border: "0.5px solid #d97706",
-                resize: "none", boxSizing: "border-box", overflow: "hidden"
-              }}
-            />
-          ) : (
-            <span
-              onClick={onStartEdit}
-              title="Click to edit"
-              style={{ fontSize: 13, color: block.text ? "#222" : "#bbb", lineHeight: 1.6, cursor: "text", fontStyle: block.text ? "normal" : "italic" }}
-            >{block.text || "Enter name"}</span>
-          )}
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", letterSpacing: "0.06em", fontStyle: "italic", marginBottom: 4 }}>
+            {meta.label}
+          </div>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+            {meta.fields.map(field => (
+              <label key={field} style={{ display: "flex", alignItems: "center", gap: 5 }} onClick={e => e.stopPropagation()}>
+                <span style={{ fontSize: 11, color: "#aaa", textTransform: "uppercase", letterSpacing: "0.04em" }}>{field}</span>
+                <input
+                  type="text"
+                  value={fields[field] ?? ""}
+                  onChange={e => onMetaFieldChange(field, e.target.value)}
+                  placeholder="—"
+                  style={{
+                    fontSize: 13, padding: "2px 7px", borderRadius: 5,
+                    border: "0.5px solid #ddd",
+                    background: "white", color: "#222", fontFamily: "inherit",
+                    minWidth: meta.fields.length === 1 ? 200 : 90,
+                    outline: "none",
+                  }}
+                />
+              </label>
+            ))}
+          </div>
         </div>
         {insertBtn}
       </div>
@@ -334,7 +366,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
       } else if (e.key === "Enter") {
         const idx = selectedIndexRef.current
         const block = blocksRef.current?.[idx]
-        if (block?.type === "utterance" || block?.type === "witness_sworn") { e.preventDefault(); cancelledRef.current = false; setDraft(draftCacheRef.current[idx] ?? block.text); setEditingIndex(idx) }
+        if (block?.type === "utterance") { e.preventDefault(); cancelledRef.current = false; setDraft(draftCacheRef.current[idx] ?? block.text); setEditingIndex(idx) }
       } else if (e.key === "s") {
         const idx = selectedIndexRef.current
         const block = blocksRef.current?.[idx]
@@ -392,7 +424,14 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
       fetch(`${API}/jobs/${jobId}`, { headers })
         .then(r => r.json())
         .then(data => {
-          setBlocks(data.blocks.map(b => b.type ? b : { ...b, type: "utterance" }))
+          setBlocks(data.blocks.map(b => {
+            if (!b.type) return { ...b, type: "utterance" }
+            if (META_BLOCKS[b.type] && !b.fields) {
+              const { text, ...rest } = b
+              return { ...rest, fields: { [META_BLOCKS[b.type].fields[0]]: text || "" } }
+            }
+            return b
+          }))
           setJobFilename(data.filename ? data.filename.replace(/\.[^.]+$/, "") : jobId)
           setLoading(false)
         })
@@ -402,6 +441,19 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     }
     load()
   }, [jobId])
+
+  async function updateMetaField(index, fieldName, value) {
+    const updated = blocks.map((b, i) =>
+      i === index ? { ...b, fields: { ...(b.fields || {}), [fieldName]: value } } : b
+    )
+    setBlocks(updated)
+    const headers = await authHeaders()
+    fetch(`${API}/jobs/${jobId}/blocks`, {
+      method: "PUT",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ blocks: updated }),
+    })
+  }
 
   function openRenameOne(index) {
     setRenameTarget({ index, mode: "rename" })
@@ -522,8 +574,9 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     let newBlock
     if (type === "qa_toggle") {
       newBlock = { type: "qa_toggle" }
-    } else if (type === "witness_sworn") {
-      newBlock = { type: "witness_sworn", text: "", start_ms: cur[afterIndex]?.end_ms ?? 0, end_ms: cur[afterIndex]?.end_ms ?? 0 }
+    } else if (META_BLOCKS[type]) {
+      const emptyFields = Object.fromEntries(META_BLOCKS[type].fields.map(f => [f, ""]))
+      newBlock = { type, fields: emptyFields, start_ms: cur[afterIndex]?.end_ms ?? 0, end_ms: cur[afterIndex]?.end_ms ?? 0 }
     } else {
       newBlock = { type: "utterance", speaker: "UNKNOWN SPEAKER", text: "", start_ms: cur[afterIndex]?.end_ms ?? 0, end_ms: cur[afterIndex]?.end_ms ?? 0 }
     }
@@ -551,12 +604,13 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     for (let i = 0; i < blocks.length; i++) {
       const b = blocks[i]
       const role = roles[i]
-      if (b.type === "witness_sworn") {
-        const name = b.text ? b.text.trim().toUpperCase() : "______"
-        lines.push("")
-        lines.push(`_${name}_`)
-        lines.push("Was thereupon called as a witness on behalf of the State; and, having been first duly sworn, was examined and testified as follows:")
-        lines.push("")
+      if (META_BLOCKS[b.type]) {
+        const text = META_BLOCKS[b.type].template(b.fields || {})
+        if (text) {
+          lines.push("")
+          for (const line of text.split("\n")) lines.push(line)
+          lines.push("")
+        }
         prevRole = ""
         continue
       }
@@ -692,6 +746,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
             onConfirmEdit={confirmEdit}
             onCancelEdit={cancelEdit}
             onDraftChange={handleDraftChange}
+            onMetaFieldChange={(field, value) => updateMetaField(i, field, value)}
             onUpdateText={updateText}
           />
         ))}
