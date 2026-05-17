@@ -193,7 +193,7 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, i
               onClick={onStartEdit}
               title="Click to edit"
               style={{ fontSize: 13, color: block.text ? "#222" : "#bbb", lineHeight: 1.6, cursor: "text", fontStyle: block.text ? "normal" : "italic" }}
-            >{block.text || "click to add text"}</span>
+            >{block.text || "Enter name"}</span>
           )}
         </div>
         {insertBtn}
