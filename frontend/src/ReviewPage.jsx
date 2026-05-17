@@ -200,10 +200,7 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, i
     const fields = block.fields || {}
     return (
       <div style={rowStyle} onClick={onSelect} data-block-index={index}>
-        <span />
-        <span />
-        <span />
-        <div>
+        <div style={{ gridColumn: "1 / -2" }}>
           <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", letterSpacing: "0.06em", fontStyle: "italic", marginBottom: 4 }}>
             {meta.label}
           </div>
