@@ -551,6 +551,15 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     for (let i = 0; i < blocks.length; i++) {
       const b = blocks[i]
       const role = roles[i]
+      if (b.type === "witness_sworn") {
+        const name = b.text ? b.text.trim().toUpperCase() : "______"
+        lines.push("")
+        lines.push(`_${name}_`)
+        lines.push("Was thereupon called as a witness on behalf of the State; and, having been first duly sworn, was examined and testified as follows:")
+        lines.push("")
+        prevRole = ""
+        continue
+      }
       if (b.type !== "utterance") continue
       if (role === "Q" && prevRole === "") lines.push(`BY ${b.speaker}:`)
       const text = normalizeSentenceSpacing(b.text)
