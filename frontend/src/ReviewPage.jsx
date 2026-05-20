@@ -53,8 +53,8 @@ const META_BLOCKS = {
     fields: ["ROLE", "NUMBER"],
     template: f => `(${f.ROLE || "___"}'s Exhibit No. ${f.NUMBER || "___"} received.)`,
   },
-  examination: {
-    label: "Examination",
+  header: {
+    label: "Header",
     fields: ["TEXT"],
     template: f => f.TEXT || "",
   },
@@ -622,6 +622,19 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     URL.revokeObjectURL(url)
   }
 
+  async function saveDocx() {
+    const headers = await authHeaders()
+    const res = await fetch(`${API}/jobs/${jobId}/docx`, { headers })
+    if (!res.ok) { alert("Failed to generate .docx"); return }
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `${jobFilename}_transcript.docx`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   function saveBlob() {
     const text = blocks
       .filter(b => b.type === "utterance")
@@ -664,7 +677,10 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
           <button onClick={saveBlob} style={{ fontSize: 13, padding: "7px 16px", borderRadius: 8, border: "0.5px solid #ddd", background: "white", color: "#555", cursor: "pointer" }}>
             💾 Save blob
           </button>
-          <button onClick={saveTranscript} style={{ fontSize: 13, padding: "7px 16px", borderRadius: 8, border: "none", background: "#185FA5", color: "white", cursor: "pointer" }}>
+          <button onClick={saveDocx} style={{ fontSize: 13, padding: "7px 16px", borderRadius: 8, border: "none", background: "#185FA5", color: "white", cursor: "pointer" }}>
+            💾 Save .docx
+          </button>
+          <button onClick={saveTranscript} style={{ fontSize: 13, padding: "7px 16px", borderRadius: 8, border: "0.5px solid #ddd", background: "white", color: "#555", cursor: "pointer" }}>
             💾 Save .txt
           </button>
         </div>
