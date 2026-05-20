@@ -6,14 +6,19 @@ import threading
 import asyncio
 import shutil
 import errno
+import io
+import zipfile
 import psycopg2
 import psycopg2.extras
 import assemblyai as aai
 import stripe
 import ffmpeg
+from docx import Document
+from docx.shared import Pt
+from docx.enum.text import WD_LINE_SPACING, WD_ALIGN_PARAGRAPH
 from fastapi import FastAPI, UploadFile, File, HTTPException, Header, Request, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from dotenv import load_dotenv
 from fastapi import Depends
 from typing import List
@@ -223,6 +228,146 @@ def delete_old_audio(user_id: str):
                 if path and os.path.exists(path):
                     os.remove(path)
 # ---------------------------------------------------------------------------
+# Docx generation
+# ---------------------------------------------------------------------------
+
+TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "templates", "Transcript.dotm")
+_W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+_ABBREV_RE = re.compile(r"\b(Mr|Mrs|Ms|Dr|Jr|Sr|vs|etc|No|St)\.  ", re.IGNORECASE)
+
+def _open_dotm():
+    with open(TEMPLATE_PATH, "rb") as f:
+        data = f.read()
+    inp = zipfile.ZipFile(io.BytesIO(data))
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as out:
+        for item in inp.infolist():
+            content = inp.read(item.filename)
+            if item.filename == "[Content_Types].xml":
+                content = content.replace(
+                    b"application/vnd.ms-word.template.macroEnabledTemplate.main+xml",
+                    b"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml",
+                )
+            out.writestr(item, content)
+    buf.seek(0)
+    return Document(buf)
+
+def _normalize(text):
+    text = re.sub(r"([.?])\s*", r"\1  ", text)
+    text = _ABBREV_RE.sub(r"\1. ", text)
+    return text.rstrip()
+
+def _compute_roles(blocks):
+    qa_on, next_role, roles = False, "Q", []
+    for b in blocks:
+        if b.get("type") == "qa_toggle":
+            qa_on = not qa_on
+            if qa_on:
+                next_role = "Q"
+            roles.append("")
+        elif b.get("type") == "utterance" and qa_on:
+            r = next_role
+            next_role = "A" if r == "Q" else "Q"
+            roles.append(r)
+        else:
+            roles.append("")
+    return roles
+
+def _add_para(doc, text=""):
+    p = doc.add_paragraph()
+    pf = p.paragraph_format
+    pf.line_spacing_rule = WD_LINE_SPACING.MULTIPLE
+    pf.line_spacing = 1.9
+    pf.space_before = Pt(0)
+    pf.space_after = Pt(0)
+    if text:
+        run = p.add_run(text)
+        run.font.name = "Courier New"
+        run.font.size = Pt(12)
+    return p
+
+def generate_docx(blocks):
+    doc = _open_dotm()
+
+    # Keep first 4 preamble paragraphs, drop the rest
+    body = doc.element.body
+    paras = body.findall(f"{{{_W_NS}}}p")
+    for p in paras[4:]:
+        body.remove(p)
+
+    _add_para(doc)  # blank separator
+
+    roles = _compute_roles(blocks)
+    prev_role = ""
+
+    for i, block in enumerate(blocks):
+        btype = block.get("type", "utterance")
+        role = roles[i]
+        fields = block.get("fields", {})
+
+        if btype == "qa_toggle":
+            continue
+
+        if btype == "utterance":
+            text = _normalize(block.get("text", ""))
+            if role == "Q" and prev_role == "":
+                _add_para(doc, f"BY {block['speaker']}:")
+            line = f"\t{role}\t{text}" if role else f"\t\t{block['speaker']}:  {text}"
+            _add_para(doc, line)
+            prev_role = role
+            continue
+
+        # Meta blocks always break the Q/A "BY" header chain
+        prev_role = ""
+
+        if btype in ("witness_sworn", "witness_sworn_gj"):
+            name = (fields.get("NAME") or "").strip().upper() or "______"
+            boilerplate = (
+                "Was thereupon called as a witness on behalf of the State; and, having been first duly sworn, was examined and testified as follows:"
+                if btype == "witness_sworn"
+                else "Was thereupon called as a witness; and, having been first duly sworn, was examined and testified as follows:"
+            )
+            p = _add_para(doc)
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run = p.add_run(name)
+            run.font.name = "Courier New"
+            run.font.size = Pt(12)
+            run.underline = True
+            _add_para(doc, boilerplate)
+
+        elif btype == "pause_in_proceedings":
+            start, end = fields.get("START", "___"), fields.get("END", "___")
+            p = _add_para(doc, f"(Pause in proceedings, {start} - {end})")
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+        elif btype == "whispered_discussion":
+            start, end = fields.get("START", "___"), fields.get("END", "___")
+            p = _add_para(doc, f"(Whispered discussion, off the record, {start} - {end})")
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+        elif btype == "exhibit_received":
+            role_f = fields.get("ROLE", "___")
+            number = fields.get("NUMBER", "___")
+            p = _add_para(doc, f"({role_f}'s Exhibit No. {number} received.)")
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+        elif btype == "header":
+            text = fields.get("TEXT", "")
+            if text:
+                p = _add_para(doc)
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                run = p.add_run(text)
+                run.font.name = "Courier New"
+                run.font.size = Pt(12)
+                run.underline = True
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf
+
+
+# ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 
@@ -325,6 +470,21 @@ def update_blocks(job_id: str, body: dict, user: str = Depends(require_auth)):
         raise HTTPException(status_code=404, detail="Job not found")
     db_update_blocks(job_id, body["blocks"])
     return {"ok": True}
+
+
+@app.get("/jobs/{job_id}/docx")
+def get_docx(job_id: str, user: str = Depends(require_auth)):
+    job = db_get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    blocks = job.get("utterances") or []
+    base = os.path.splitext(job.get("filename", "transcript"))[0]
+    buf = generate_docx(blocks)
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{base}_transcript.docx"'},
+    )
 
 
 @app.get("/jobs/{job_id}/audio-available")
