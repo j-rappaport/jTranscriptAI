@@ -662,8 +662,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   return (
     <div style={{ fontFamily: "'Public Sans', Arial, sans-serif" }}>
       <div style={{ background: "#0d2c4f", height: 8 }} />
-      <div style={{ background: "#1a4480", padding: "14px 20px" }}>
-        <div style={{ maxWidth: 900, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <div style={{ background: "#1a4480", padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <BrandLogo />
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
             <button
@@ -708,7 +707,6 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
               )}
             </div>
           </div>
-        </div>
       </div>
 
       <div style={{ maxWidth: 900, margin: "32px auto 48px", padding: "0 20px", textAlign: "left" }}>

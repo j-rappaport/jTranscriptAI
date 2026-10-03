@@ -81,10 +81,8 @@ function SignInPage() {
   return (
     <div style={{ fontFamily: "'Public Sans', Arial, sans-serif" }}>
       <div style={{ background: "#0d2c4f", height: 8 }} />
-      <div style={{ background: "#1a4480", padding: "16px 20px" }}>
-        <div style={{ maxWidth: 660, margin: "0 auto" }}>
-          <BrandLogo />
-        </div>
+      <div style={{ background: "#1a4480", padding: "16px 24px" }}>
+        <BrandLogo />
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginTop: 60, padding: "0 20px" }}>
@@ -171,7 +169,6 @@ function AppInner() {
   const [paymentNotice, setPaymentNotice] = useState(null)
   const [boostWords, setBoostWords] = useState(() => localStorage.getItem("jt_boost_words") ?? DEFAULT_BOOST_WORDS)
   const [vocabOpen, setVocabOpen] = useState(false)
-  const [menuOpen, setMenuOpen] = useState(false)
 
   useEffect(() => { localStorage.setItem("jt_boost_words", boostWords) }, [boostWords])
 
@@ -341,53 +338,28 @@ function AppInner() {
   return (
     <div style={{ fontFamily: "'Public Sans', Arial, sans-serif" }}>
       <div style={{ background: "#0d2c4f", height: 8 }} />
-      <div style={{ background: "#1a4480", padding: "14px 20px" }}>
-        <div style={{ maxWidth: 660, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <div style={{ background: "#1a4480", padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <BrandLogo />
-          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
             {creditsHours !== null && (
-              <span style={{ fontSize: 12, color: lowCredits ? "#ffb4b4" : "#cdd8e6" }}>
-                {creditsHours.toFixed(1)} hrs remaining
-              </span>
-            )}
-            <div style={{ position: "relative" }}>
-              <button
-                onClick={() => setMenuOpen(v => !v)}
-                aria-label="Menu"
-                style={{
-                  width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center",
-                  border: "1px solid rgba(255,255,255,0.5)", background: "transparent", borderRadius: 3, cursor: "pointer"
-                }}
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                  <path d="M4 6h16M4 12h16M4 18h16" stroke="white" strokeWidth="2" strokeLinecap="round" />
-                </svg>
-              </button>
-              {menuOpen && (
-                <div style={{
-                  position: "absolute", top: 38, right: 0, background: "white", border: "1px solid #c9c9c9",
-                  borderRadius: 3, boxShadow: "0 4px 10px rgba(0,0,0,0.15)", padding: 12, minWidth: 180, zIndex: 10,
-                  display: "flex", flexDirection: "column", gap: 10
-                }}>
-                  <button
-                    onClick={() => { setShowBuyCredits(v => !v); setMenuOpen(false) }}
-                    style={{
-                      fontSize: 12, padding: "6px 10px", borderRadius: 3,
-                      border: "1px solid #1a4480", background: "white",
-                      color: "#1a4480", cursor: "pointer", width: "100%"
-                    }}
-                  >
-                    Buy credits
-                  </button>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <span style={{ fontSize: 12, color: "#5a5a5a" }}>Account</span>
-                    <UserButton />
-                  </div>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                <div style={{ fontSize: 12, color: lowCredits ? "#ffb4b4" : "#cdd8e6" }}>
+                  {creditsHours.toFixed(1)} hrs remaining
                 </div>
-              )}
-            </div>
+                <button
+                  onClick={() => setShowBuyCredits(v => !v)}
+                  style={{
+                    fontSize: 12, padding: "6px 12px", borderRadius: 3,
+                    border: "1px solid rgba(255,255,255,0.6)", background: "transparent",
+                    color: "white", cursor: "pointer"
+                  }}
+                >
+                  Buy credits
+                </button>
+              </div>
+            )}
+            <UserButton />
           </div>
-        </div>
       </div>
 
       <div style={{ maxWidth: 660, margin: "32px auto 48px", padding: "0 20px" }}>
@@ -579,7 +551,13 @@ function AppInner() {
 
 export default function App() {
   return (
-    <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY}>
+    <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY} appearance={{
+      variables: { colorPrimary: "#1a4480" },
+      elements: {
+        avatarBox: { backgroundColor: "#1a4480" },
+        userButtonAvatarBox: { backgroundColor: "#1a4480" },
+      },
+    }}>
       <AppInner />
     </ClerkProvider>
   )
