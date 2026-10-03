@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react"
+import { BrandLogo } from "./App"
 
 const API = import.meta.env.VITE_API_URL
 
@@ -82,7 +83,7 @@ function InsertMenu({ onInsert, onDelete, onClose }) {
       <div style={{ position: "fixed", inset: 0, zIndex: 9 }} onClick={onClose} />
       <div style={{
         position: "absolute", right: 0, top: "calc(100% + 4px)", zIndex: 10,
-        background: "white", border: "0.5px solid #ddd", borderRadius: 8,
+        background: "white", border: "1px solid #b0b0b0", borderRadius: 4,
         boxShadow: "0 4px 12px rgba(0,0,0,0.08)", padding: "4px 0", minWidth: 160
       }}>
         <button onClick={() => onInsert("qa_toggle")} style={{ ...itemStyle, color: "#222" }}
@@ -90,7 +91,7 @@ function InsertMenu({ onInsert, onDelete, onClose }) {
           onMouseLeave={e => e.target.style.background = "none"}>
           Insert QA Toggle
         </button>
-        <div style={{ borderTop: "0.5px solid #f0f0f0", margin: "4px 0" }} />
+        <div style={{ borderTop: "1px solid #f0f0f0", margin: "4px 0" }} />
         {Object.entries(META_BLOCKS).map(([type, meta]) => (
           <button key={type} onClick={() => onInsert(type)} style={{ ...itemStyle, color: "#222" }}
             onMouseEnter={e => e.target.style.background = "#f5f5f5"}
@@ -98,7 +99,7 @@ function InsertMenu({ onInsert, onDelete, onClose }) {
             Insert {meta.label}
           </button>
         ))}
-        <div style={{ borderTop: "0.5px solid #f0f0f0", margin: "4px 0" }} />
+        <div style={{ borderTop: "1px solid #f0f0f0", margin: "4px 0" }} />
         <button onClick={onDelete} style={{ ...itemStyle, color: "#ef4444" }}
           onMouseEnter={e => e.target.style.background = "#fef2f2"}
           onMouseLeave={e => e.target.style.background = "none"}>
@@ -110,7 +111,7 @@ function InsertMenu({ onInsert, onDelete, onClose }) {
 }
 
 const ROLE_STYLE = {
-  Q: { color: "#185FA5", fontWeight: 600 },
+  Q: { color: "#1a4480", fontWeight: 600 },
   A: { color: "#dc2626", fontWeight: 600 },
 }
 
@@ -144,7 +145,7 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, i
     gridTemplateColumns: "80px 160px 40px 1fr auto",
     gap: 12,
     padding: "10px 16px",
-    borderBottom: "0.5px solid #f0f0f0",
+    borderBottom: "1px solid #f0f0f0",
     alignItems: "start",
     background: rowBg,
     cursor: "default",
@@ -156,7 +157,7 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, i
   }
 
   const iconBtnStyle = {
-    fontSize: 13, width: 26, height: 26, borderRadius: 6, cursor: "pointer",
+    fontSize: 13, width: 26, height: 26, borderRadius: 3, cursor: "pointer",
     display: "flex", alignItems: "center", justifyContent: "center", padding: 0
   }
 
@@ -165,7 +166,7 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, i
       <button
         onClick={e => { e.stopPropagation(); insertMenuOpen ? onCloseInsertMenu() : onOpenInsertMenu() }}
         title="Insert below"
-        style={{ ...iconBtnStyle, border: "0.5px solid #e0e0e0", background: "white", color: "#bbb" }}
+        style={{ ...iconBtnStyle, border: "1px solid #e0e0e0", background: "white", color: "#bbb" }}
       >
         ☰
       </button>
@@ -184,7 +185,7 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, i
         <span />
         <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 12, fontWeight: 500, color: "#888", fontStyle: "italic" }}>QA Toggle</span>
-          <span style={{ fontSize: 11, fontWeight: 600, color, background: bg, border: `0.5px solid ${border}`, borderRadius: 4, padding: "1px 6px" }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color, background: bg, border: `1px solid ${border}`, borderRadius: 4, padding: "1px 6px" }}>
             {toggleState ? "ON" : "OFF"}
           </span>
         </span>
@@ -214,8 +215,8 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, i
                   onChange={e => onMetaFieldChange(field, e.target.value)}
                   placeholder="—"
                   style={{
-                    fontSize: 13, padding: "2px 7px", borderRadius: 5,
-                    border: "0.5px solid #ddd",
+                    fontSize: 13, padding: "2px 7px", borderRadius: 3,
+                    border: "1px solid #b0b0b0",
                     background: "white", color: "#222", fontFamily: "inherit",
                     minWidth: meta.fields.length === 1 ? 200 : 90,
                     outline: "none",
@@ -238,13 +239,13 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, i
 
   return (
     <div style={rowStyle} onClick={onSelect} data-block-index={index}>
-      <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, color: "#888", paddingTop: 2 }}>
+      <span style={{ fontFamily: "ui-monospace, Consolas, monospace", fontSize: 12, color: "#888", paddingTop: 2 }}>
         {msToTimecode(block.start_ms)}
       </span>
 
       <span
         onClick={() => onRenameOne(index)}
-        style={{ fontSize: 12, fontWeight: 500, color: "#185FA5", cursor: "pointer", lineHeight: 1.3 }}
+        style={{ fontSize: 12, fontWeight: 500, color: "#1a4480", cursor: "pointer", lineHeight: 1.3 }}
         title="Rename speaker"
       >
         {block.speaker}
@@ -275,7 +276,7 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, i
             }}
             style={{
               width: "100%", fontSize: 13, lineHeight: 1.6, fontFamily: "inherit",
-              padding: "4px 8px", borderRadius: 6, border: "0.5px solid #185FA5",
+              padding: "4px 8px", borderRadius: 3, border: "1px solid #1a4480",
               resize: "none", boxSizing: "border-box", overflow: "hidden"
             }}
           />
@@ -289,8 +290,8 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, i
           onClick={playFrom}
           disabled={!audioAvailable}
           style={{
-            fontSize: 11, padding: "4px 10px", borderRadius: 6,
-            border: `0.5px solid ${audioAvailable ? "#d1fae5" : "#eee"}`,
+            fontSize: 11, padding: "4px 10px", borderRadius: 3,
+            border: `1px solid ${audioAvailable ? "#d1fae5" : "#dadada"}`,
             background: audioAvailable ? "#f0fdf4" : "#f9f9f9",
             color: audioAvailable ? "#065f46" : "#bbb",
             cursor: audioAvailable ? "pointer" : "not-allowed",
@@ -321,6 +322,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   const [draft, setDraft] = useState("")
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [playbackRate, setPlaybackRate] = useState(1)
+  const [menuOpen, setMenuOpen] = useState(false)
   const audioRef = useRef(null)
   const blocksRef = useRef(null)
   const selectedIndexRef = useRef(0)
@@ -652,41 +654,66 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   const { roles, toggleStates, sectionIndices } = loading ? { roles: [], toggleStates: [], sectionIndices: [] } : computeBlockDisplay(blocks)
 
   if (loading) return (
-    <div style={{ fontFamily: "'Outfit', sans-serif", maxWidth: 900, margin: "48px auto", padding: "0 20px" }}>
+    <div style={{ fontFamily: "'Public Sans', Arial, sans-serif", maxWidth: 900, margin: "48px auto", padding: "0 20px" }}>
       <p style={{ color: "#888" }}>Loading transcript…</p>
     </div>
   )
 
   return (
-    <div style={{ fontFamily: "'Outfit', sans-serif", maxWidth: 900, margin: "48px auto", padding: "0 20px", textAlign: "left" }}>
-      <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Mono:wght@400;500&family=Outfit:wght@300;400;500&display=swap" rel="stylesheet" />
-
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
-          <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 28, letterSpacing: "-0.5px" }}>
-            j<span style={{ color: "#185FA5" }}>Transcript</span>
+    <div style={{ fontFamily: "'Public Sans', Arial, sans-serif" }}>
+      <div style={{ background: "#0d2c4f", height: 8 }} />
+      <div style={{ background: "#1a4480", padding: "14px 20px" }}>
+        <div style={{ maxWidth: 900, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <BrandLogo />
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <button
+              onClick={onBack}
+              style={{
+                fontSize: 12, padding: "6px 12px", borderRadius: 3,
+                border: "1px solid rgba(255,255,255,0.6)", background: "transparent",
+                color: "white", cursor: "pointer"
+              }}
+            >
+              Return to Jobs
+            </button>
+            <div style={{ position: "relative" }}>
+              <button
+                onClick={() => setMenuOpen(v => !v)}
+                aria-label="Menu"
+                style={{
+                  width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center",
+                  border: "1px solid rgba(255,255,255,0.5)", background: "transparent", borderRadius: 3, cursor: "pointer"
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                  <path d="M4 6h16M4 12h16M4 18h16" stroke="white" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              </button>
+              {menuOpen && (
+                <div style={{
+                  position: "absolute", top: 38, right: 0, background: "white", border: "1px solid #c9c9c9",
+                  borderRadius: 3, boxShadow: "0 4px 10px rgba(0,0,0,0.15)", padding: 12, minWidth: 170, zIndex: 100,
+                  display: "flex", flexDirection: "column", gap: 8
+                }}>
+                  <button onClick={() => { saveBlob(); setMenuOpen(false) }} style={{ fontSize: 13, padding: "7px 10px", borderRadius: 4, border: "1px solid #b0b0b0", background: "white", color: "#555", cursor: "pointer", textAlign: "left" }}>
+                    💾 Save blob
+                  </button>
+                  <button onClick={() => { saveDocx(); setMenuOpen(false) }} style={{ fontSize: 13, padding: "7px 10px", borderRadius: 4, border: "1px solid #1a4480", background: "white", color: "#1a4480", cursor: "pointer", fontWeight: 600, textAlign: "left" }}>
+                    💾 Save .docx
+                  </button>
+                  <button onClick={() => { saveTranscript(); setMenuOpen(false) }} style={{ fontSize: 13, padding: "7px 10px", borderRadius: 4, border: "1px solid #b0b0b0", background: "white", color: "#555", cursor: "pointer", textAlign: "left" }}>
+                    💾 Save .txt
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
-          <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "#888", border: "0.5px solid #ddd", padding: "3px 8px", borderRadius: 4 }}>
-            Review
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={onBack} style={{ fontSize: 13, padding: "7px 16px", borderRadius: 8, border: "0.5px solid #ddd", background: "white", cursor: "pointer", color: "#555" }}>
-            ← New job
-          </button>
-          <button onClick={saveBlob} style={{ fontSize: 13, padding: "7px 16px", borderRadius: 8, border: "0.5px solid #ddd", background: "white", color: "#555", cursor: "pointer" }}>
-            💾 Save blob
-          </button>
-          <button onClick={saveDocx} style={{ fontSize: 13, padding: "7px 16px", borderRadius: 8, border: "none", background: "#185FA5", color: "white", cursor: "pointer" }}>
-            💾 Save .docx
-          </button>
-          <button onClick={saveTranscript} style={{ fontSize: 13, padding: "7px 16px", borderRadius: 8, border: "0.5px solid #ddd", background: "white", color: "#555", cursor: "pointer" }}>
-            💾 Save .txt
-          </button>
         </div>
       </div>
 
-      <div style={{ position: "sticky", top: 0, zIndex: 50, background: "white", border: "0.5px solid #e5e5e5", borderRadius: 12, padding: "12px 16px", marginBottom: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+      <div style={{ maxWidth: 900, margin: "32px auto 48px", padding: "0 20px", textAlign: "left" }}>
+
+      <div style={{ position: "sticky", top: 0, zIndex: 50, background: "white", border: "1px solid #c9c9c9", borderRadius: 4, padding: "12px 16px", marginBottom: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
 {audioAvailable
   ? <audio
       ref={audioRef}
@@ -705,9 +732,9 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
                 onClick={() => setPlaybackRate(r)}
                 style={{
                   fontSize: 11, padding: "2px 8px", borderRadius: 4, cursor: "pointer",
-                  border: playbackRate === r ? "1.5px solid #185FA5" : "0.5px solid #ddd",
-                  background: playbackRate === r ? "#E6F1FB" : "white",
-                  color: playbackRate === r ? "#185FA5" : "#555", fontWeight: playbackRate === r ? 600 : 400
+                  border: playbackRate === r ? "1.5px solid #1a4480" : "1px solid #b0b0b0",
+                  background: playbackRate === r ? "#e7ecf1" : "white",
+                  color: playbackRate === r ? "#1a4480" : "#555", fontWeight: playbackRate === r ? 600 : 400
                 }}
               >{r}×</button>
             ))}
@@ -715,11 +742,11 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
         )}
       </div>
 
-      <div style={{ background: "white", border: "0.5px solid #e5e5e5", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ background: "white", border: "1px solid #c9c9c9", borderRadius: 4, overflow: "hidden" }}>
         <div style={{
           display: "grid", gridTemplateColumns: "80px 160px 40px 1fr auto",
           gap: 12, padding: "8px 16px",
-          background: "#185FA5", color: "white", fontSize: 11,
+          background: "#1a4480", color: "white", fontSize: 11,
           fontWeight: 500, letterSpacing: "0.06em", textTransform: "uppercase"
         }}>
           <span>Time</span>
@@ -803,14 +830,14 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
             <div
               ref={modalRef}
               tabIndex={0}
-              style={{ background: "white", borderRadius: 12, padding: 24, width: 340, boxShadow: "0 8px 32px rgba(0,0,0,0.18)", outline: "none" }}
+              style={{ background: "white", borderRadius: 4, padding: 24, width: 340, boxShadow: "0 8px 32px rgba(0,0,0,0.18)", outline: "none" }}
               onClick={e => e.stopPropagation()}
               onKeyDown={handleModalKey}
             >
               <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 16, color: "#111" }}>
                 {renameTarget.mode === "insert" ? "Insert utterance — select speaker" : "Select speaker"}
               </div>
-              <div style={{ border: "0.5px solid #e5e5e5", borderRadius: 8, overflow: "hidden", marginBottom: 16 }}>
+              <div style={{ border: "1px solid #c9c9c9", borderRadius: 4, overflow: "hidden", marginBottom: 16 }}>
                 {allSpeakers.map(s => {
                   const selected = !isAddNew && renameOriginal === s
                   const editing = selected && renameEditing
@@ -823,7 +850,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
                         padding: editing ? "6px 14px" : "10px 14px",
                         fontSize: 13, cursor: "pointer",
                         background: selected ? "#EBF3FB" : "white",
-                        borderBottom: "0.5px solid #f0f0f0",
+                        borderBottom: "1px solid #f0f0f0",
                       }}
                     >
                       {editing ? (
@@ -836,12 +863,12 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
                           onBlur={() => modalRef.current?.focus()}
                           style={{
                             flex: 1, padding: "3px 8px", fontSize: 13, fontWeight: 500,
-                            borderRadius: 6, border: "1.5px solid #185FA5", outline: "none",
-                            boxSizing: "border-box", color: "#185FA5", background: "white"
+                            borderRadius: 3, border: "1.5px solid #1a4480", outline: "none",
+                            boxSizing: "border-box", color: "#1a4480", background: "white"
                           }}
                         />
                       ) : (
-                        <span style={{ color: selected ? "#185FA5" : "#222", fontWeight: selected ? 600 : 400 }}>{s}</span>
+                        <span style={{ color: selected ? "#1a4480" : "#222", fontWeight: selected ? 600 : 400 }}>{s}</span>
                       )}
                     </div>
                   )
@@ -866,12 +893,12 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
                       placeholder="New speaker name"
                       style={{
                         flex: 1, padding: "3px 8px", fontSize: 13, fontWeight: 500,
-                        borderRadius: 6, border: "1.5px solid #185FA5", outline: "none",
-                        boxSizing: "border-box", color: "#185FA5", background: "white"
+                        borderRadius: 3, border: "1.5px solid #1a4480", outline: "none",
+                        boxSizing: "border-box", color: "#1a4480", background: "white"
                       }}
                     />
                   ) : (
-                    <span style={{ color: isAddNew ? "#185FA5" : "#aaa", fontWeight: isAddNew ? 600 : 400, fontStyle: "italic" }}>
+                    <span style={{ color: isAddNew ? "#1a4480" : "#aaa", fontWeight: isAddNew ? 600 : 400, fontStyle: "italic" }}>
                       &lt;NEW&gt;
                     </span>
                   )}
@@ -880,15 +907,15 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 <button
                   onClick={() => editRow(renameOriginal)}
-                  style={{ padding: "7px 16px", borderRadius: 8, border: "0.5px solid #ddd", background: "white", cursor: "pointer", color: "#222", fontSize: 13 }}
+                  style={{ padding: "7px 16px", borderRadius: 4, border: "1px solid #b0b0b0", background: "white", cursor: "pointer", color: "#222", fontSize: 13 }}
                 >
                   Edit
                 </button>
                 <div style={{ flex: 1 }} />
-                <button onClick={() => setRenameTarget(null)} style={{ padding: "7px 16px", borderRadius: 8, border: "0.5px solid #ddd", background: "white", cursor: "pointer", color: "#222", fontSize: 13 }}>
+                <button onClick={() => setRenameTarget(null)} style={{ padding: "7px 16px", borderRadius: 4, border: "1px solid #b0b0b0", background: "white", cursor: "pointer", color: "#222", fontSize: 13 }}>
                   Cancel
                 </button>
-                <button onClick={applyRenameOne} style={{ padding: "7px 16px", borderRadius: 8, border: "none", background: "#185FA5", color: "white", cursor: "pointer", fontSize: 13 }}>
+                <button onClick={applyRenameOne} style={{ padding: "7px 16px", borderRadius: 4, border: "none", background: "#1a4480", color: "white", cursor: "pointer", fontSize: 13 }}>
                   OK
                 </button>
               </div>
@@ -899,11 +926,11 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
 
       <div style={{ position: "fixed", bottom: 20, right: 20, zIndex: 200, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
         {shortcutsOpen && (
-          <div style={{ background: "white", border: "0.5px solid #e0e0e0", borderRadius: 10, padding: "12px 16px", boxShadow: "0 4px 16px rgba(0,0,0,0.08)", minWidth: 200 }}>
+          <div style={{ background: "white", border: "1px solid #e0e0e0", borderRadius: 4, padding: "12px 16px", boxShadow: "0 4px 16px rgba(0,0,0,0.08)", minWidth: 200 }}>
             <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: "#888", marginBottom: 10 }}>Shortcuts</div>
             {SHORTCUTS.map(({ keys, desc }) => (
               <div key={keys} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, marginBottom: 6 }}>
-                <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 11, background: "#f5f5f5", border: "0.5px solid #ddd", borderRadius: 4, padding: "2px 7px", color: "#444", whiteSpace: "nowrap" }}>{keys}</span>
+                <span style={{ fontFamily: "ui-monospace, Consolas, monospace", fontSize: 11, background: "#f5f5f5", border: "1px solid #b0b0b0", borderRadius: 4, padding: "2px 7px", color: "#444", whiteSpace: "nowrap" }}>{keys}</span>
                 <span style={{ fontSize: 12, color: "#555" }}>{desc}</span>
               </div>
             ))}
@@ -912,10 +939,11 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
         <button
           onClick={() => setShortcutsOpen(o => !o)}
           title="Keyboard shortcuts"
-          style={{ width: 36, height: 36, borderRadius: "50%", border: "0.5px solid #ddd", background: "white", cursor: "pointer", fontSize: 16, boxShadow: "0 2px 8px rgba(0,0,0,0.08)", display: "flex", alignItems: "center", justifyContent: "center" }}
+          style={{ width: 36, height: 36, borderRadius: "50%", border: "1px solid #b0b0b0", background: "white", cursor: "pointer", fontSize: 16, boxShadow: "0 2px 8px rgba(0,0,0,0.08)", display: "flex", alignItems: "center", justifyContent: "center" }}
         >
           ⌨
         </button>
+      </div>
       </div>
     </div>
   )

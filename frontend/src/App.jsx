@@ -23,21 +23,75 @@ function formatDate(iso) {
   })
 }
 
+const BRAND_FONT = "'Libre Franklin', Arial, sans-serif"
+
+export function BrandLogo() {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 13 }}>
+      <svg width="35" height="42" viewBox="0 0 100 120" fill="none" style={{ flexShrink: 0 }}>
+        <path
+          d="M50 6 C72 6 88 14 88 14 L88 55 C88 85 70 108 50 114 C30 108 12 85 12 55 L12 14 C12 14 28 6 50 6 Z"
+          fill="white"
+        />
+        <rect x="25" y="31" width="6" height="18" rx="2" fill="#1a4480" />
+        <rect x="36" y="25" width="6" height="30" rx="2" fill="#1a4480" />
+        <rect x="47" y="19" width="6" height="42" rx="2" fill="#1a4480" />
+        <rect x="58" y="25" width="6" height="30" rx="2" fill="#1a4480" />
+        <rect x="69" y="31" width="6" height="18" rx="2" fill="#1a4480" />
+      </svg>
+      <div style={{ textAlign: "left" }}>
+        <div style={{ fontFamily: BRAND_FONT, fontSize: 18, fontWeight: 600, letterSpacing: "0.2px", color: "white" }}>
+          Court Echo
+        </div>
+        <div style={{ fontFamily: BRAND_FONT, fontSize: 11, fontWeight: 400, color: "#cdd8e6", marginTop: -3 }}>
+          Legal transcription service
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SiteFooter() {
+  const col = { fontSize: 9, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase", color: "#5a5a5a", marginBottom: 7 }
+  const link = { fontSize: 10, color: "#1a4480", textDecoration: "none", display: "block", marginBottom: 4 }
+  return (
+    <div style={{ background: "#f0f0f0", borderTop: "1px solid #c9c9c9", marginTop: 48, padding: "24px 20px" }}>
+      <div style={{ maxWidth: 660, margin: "0 auto", display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 20, textAlign: "left" }}>
+        <div>
+          <div style={col}>Contact</div>
+          <a href="#" style={link}>Support</a>
+          <a href="#" style={link}>Contact Us</a>
+        </div>
+        <div>
+          <div style={col}>Resources</div>
+          <a href="#" style={link}>Help Center</a>
+          <a href="#" style={link}>System Status</a>
+        </div>
+        <div>
+          <div style={col}>Legal</div>
+          <a href="#" style={link}>Privacy Policy</a>
+          <a href="#" style={link}>Accessibility</a>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function SignInPage() {
   return (
-    <div style={{ fontFamily: "'Outfit', sans-serif", display: "flex", flexDirection: "column", alignItems: "center", marginTop: 80, padding: "0 20px" }}>
-      <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Mono:wght@400;500&family=Outfit:wght@300;400;500&display=swap" rel="stylesheet" />
-
-      <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 32 }}>
-        <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 28, letterSpacing: "-0.5px" }}>
-          j<span style={{ color: "#185FA5" }}>Transcript</span>
-        </div>
-        <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "#888", border: "0.5px solid #ddd", padding: "3px 8px", borderRadius: 4 }}>
-          Court Edition
+    <div style={{ fontFamily: "'Public Sans', Arial, sans-serif" }}>
+      <div style={{ background: "#0d2c4f", height: 8 }} />
+      <div style={{ background: "#1a4480", padding: "16px 20px" }}>
+        <div style={{ maxWidth: 660, margin: "0 auto" }}>
+          <BrandLogo />
         </div>
       </div>
 
-      <SignIn routing="hash" />
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginTop: 60, padding: "0 20px" }}>
+        <SignIn routing="hash" />
+      </div>
+
+      <SiteFooter />
     </div>
   )
 }
@@ -117,6 +171,7 @@ function AppInner() {
   const [paymentNotice, setPaymentNotice] = useState(null)
   const [boostWords, setBoostWords] = useState(() => localStorage.getItem("jt_boost_words") ?? DEFAULT_BOOST_WORDS)
   const [vocabOpen, setVocabOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
 
   useEffect(() => { localStorage.setItem("jt_boost_words", boostWords) }, [boostWords])
 
@@ -277,62 +332,81 @@ function AppInner() {
     />
   }
 
-  const statusColor = { pending: "#185FA5", transcribing: "#185FA5", done: "#3B6D11", error: "#A32D2D" }
-  const statusBg = { pending: "#E6F1FB", transcribing: "#E6F1FB", done: "#EAF3DE", error: "#FCEBEB" }
+  const statusColor = { pending: "#1a4480", transcribing: "#1a4480", done: "#3B6D11", error: "#A32D2D" }
+  const statusBg = { pending: "#e7ecf1", transcribing: "#e7ecf1", done: "#EAF3DE", error: "#FCEBEB" }
 
   const creditsHours = credits?.credits_hours ?? null
   const lowCredits = creditsHours !== null && creditsHours < 0.5
 
   return (
-    <div style={{ fontFamily: "'Outfit', sans-serif", maxWidth: 660, margin: "48px auto", padding: "0 20px" }}>
-      <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Mono:wght@400;500&family=Outfit:wght@300;400;500&display=swap" rel="stylesheet" />
+    <div style={{ fontFamily: "'Public Sans', Arial, sans-serif" }}>
+      <div style={{ background: "#0d2c4f", height: 8 }} />
+      <div style={{ background: "#1a4480", padding: "14px 20px" }}>
+        <div style={{ maxWidth: 660, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <BrandLogo />
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            {creditsHours !== null && (
+              <span style={{ fontSize: 12, color: lowCredits ? "#ffb4b4" : "#cdd8e6" }}>
+                {creditsHours.toFixed(1)} hrs remaining
+              </span>
+            )}
+            <div style={{ position: "relative" }}>
+              <button
+                onClick={() => setMenuOpen(v => !v)}
+                aria-label="Menu"
+                style={{
+                  width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center",
+                  border: "1px solid rgba(255,255,255,0.5)", background: "transparent", borderRadius: 3, cursor: "pointer"
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                  <path d="M4 6h16M4 12h16M4 18h16" stroke="white" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              </button>
+              {menuOpen && (
+                <div style={{
+                  position: "absolute", top: 38, right: 0, background: "white", border: "1px solid #c9c9c9",
+                  borderRadius: 3, boxShadow: "0 4px 10px rgba(0,0,0,0.15)", padding: 12, minWidth: 180, zIndex: 10,
+                  display: "flex", flexDirection: "column", gap: 10
+                }}>
+                  <button
+                    onClick={() => { setShowBuyCredits(v => !v); setMenuOpen(false) }}
+                    style={{
+                      fontSize: 12, padding: "6px 10px", borderRadius: 3,
+                      border: "1px solid #1a4480", background: "white",
+                      color: "#1a4480", cursor: "pointer", width: "100%"
+                    }}
+                  >
+                    Buy credits
+                  </button>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span style={{ fontSize: 12, color: "#5a5a5a" }}>Account</span>
+                    <UserButton />
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ maxWidth: 660, margin: "32px auto 48px", padding: "0 20px" }}>
 
       {paymentNotice === "success" && (
-        <div style={{ marginBottom: 16, padding: "10px 16px", background: "#EAF3DE", color: "#3B6D11", borderRadius: 8, fontSize: 13 }}>
+        <div style={{ marginBottom: 16, padding: "10px 16px", background: "#EAF3DE", color: "#3B6D11", borderRadius: 4, fontSize: 13 }}>
           Payment successful — your credits have been added.{" "}
           <span style={{ cursor: "pointer", textDecoration: "underline" }} onClick={() => setPaymentNotice(null)}>Dismiss</span>
         </div>
       )}
       {paymentNotice === "cancelled" && (
-        <div style={{ marginBottom: 16, padding: "10px 16px", background: "#FFF8E6", color: "#7A5800", borderRadius: 8, fontSize: 13 }}>
+        <div style={{ marginBottom: 16, padding: "10px 16px", background: "#FFF8E6", color: "#7A5800", borderRadius: 4, fontSize: 13 }}>
           Payment cancelled — no charges were made.{" "}
           <span style={{ cursor: "pointer", textDecoration: "underline" }} onClick={() => setPaymentNotice(null)}>Dismiss</span>
         </div>
       )}
 
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 32 }}>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
-          <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 28, letterSpacing: "-0.5px" }}>
-            j<span style={{ color: "#185FA5" }}>Transcript</span>
-          </div>
-          <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "#888", border: "0.5px solid #ddd", padding: "3px 8px", borderRadius: 4 }}>
-            Court Edition
-          </div>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          {creditsHours !== null && (
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 12, color: lowCredits ? "#A32D2D" : "#555" }}>
-                {creditsHours.toFixed(1)} hrs remaining
-              </span>
-              <button
-                onClick={() => setShowBuyCredits(v => !v)}
-                style={{
-                  fontSize: 12, padding: "4px 10px", borderRadius: 6,
-                  border: "0.5px solid #185FA5", background: "white",
-                  color: "#185FA5", cursor: "pointer"
-                }}
-              >
-                Buy credits
-              </button>
-            </div>
-          )}
-          <UserButton />
-        </div>
-      </div>
-
       {showBuyCredits && (
-        <div style={{ background: "white", border: "0.5px solid #e5e5e5", borderRadius: 12, padding: 20, marginBottom: 16 }}>
+        <div style={{ background: "white", border: "1px solid #c9c9c9", borderRadius: 4, padding: 20, marginBottom: 16 }}>
           <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 14, color: "#222" }}>Purchase transcription hours</div>
           <div style={{ display: "flex", gap: 10 }}>
             {CREDIT_PACKS.map(pack => (
@@ -341,13 +415,13 @@ function AppInner() {
                 onClick={() => handleBuyCredits(pack.id)}
                 disabled={buyingPack === pack.id}
                 style={{
-                  flex: 1, padding: "12px 8px", borderRadius: 8,
-                  border: "0.5px solid #ddd", background: buyingPack === pack.id ? "#f0f0f0" : "white",
+                  flex: 1, padding: "12px 8px", borderRadius: 4,
+                  border: "1px solid #b0b0b0", background: buyingPack === pack.id ? "#f0f0f0" : "white",
                   cursor: buyingPack === pack.id ? "wait" : "pointer",
                   textAlign: "center"
                 }}
               >
-                <div style={{ fontSize: 14, fontWeight: 500, color: "#185FA5" }}>{pack.label}</div>
+                <div style={{ fontSize: 14, fontWeight: 500, color: "#1a4480" }}>{pack.label}</div>
                 <div style={{ fontSize: 18, fontWeight: 600, margin: "4px 0" }}>{pack.price}</div>
                 <div style={{ fontSize: 11, color: "#aaa" }}>
                   {pack.id === "30m" ? "$2.00/hr" : pack.id === "5h" ? "$2.00/hr" : pack.id === "15h" ? "$1.67/hr" : "$1.40/hr"}
@@ -358,21 +432,21 @@ function AppInner() {
         </div>
       )}
 
-      <div style={{ background: "white", border: "0.5px solid #e5e5e5", borderRadius: 12, padding: 24, marginBottom: 16 }}>
+      <div style={{ background: "white", border: "1px solid #c9c9c9", borderRadius: 4, padding: 24, marginBottom: 16 }}>
         <div
           onDragOver={e => { e.preventDefault(); setDragging(true) }}
           onDragLeave={() => setDragging(false)}
           onDrop={e => { e.preventDefault(); setDragging(false); handleFiles(e.dataTransfer.files) }}
           onClick={() => document.getElementById("fileinput").click()}
           style={{
-            border: `1.5px dashed ${dragging ? "#185FA5" : "#ccc"}`,
-            borderRadius: 8, padding: "36px 24px", textAlign: "center", cursor: "pointer",
-            background: dragging ? "#E6F1FB" : "transparent", transition: "all 0.15s"
+            border: `1.5px dashed ${dragging ? "#1a4480" : "#adadad"}`,
+            borderRadius: 4, padding: "36px 24px", textAlign: "center", cursor: "pointer",
+            background: dragging ? "#e7ecf1" : "transparent", transition: "all 0.15s"
           }}
         >
           <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 4 }}>Drop audio file(s) here</div>
           <div style={{ fontSize: 13, color: "#888" }}>
-            or <span style={{ color: "#185FA5", fontWeight: 500 }}>browse to upload</span>
+            or <span style={{ color: "#1a4480", fontWeight: 500 }}>browse to upload</span>
           </div>
           <div style={{ fontSize: 12, color: "#aaa", marginTop: 6 }}>MP3 · TRM</div>
           <input id="fileinput" type="file" multiple accept=".mp3,.wav,.m4a,.mp4,.aac,.flac,.trm,.trs"
@@ -380,10 +454,10 @@ function AppInner() {
         </div>
 
         {files.length > 0 && (
-          <div style={{ marginTop: 12, borderRadius: 8, overflow: "hidden", border: "0.5px solid #eee" }}>
+          <div style={{ marginTop: 12, borderRadius: 4, overflow: "hidden", border: "1px solid #dadada" }}>
             {files.map((f, i) => (
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", background: i % 2 === 0 ? "#f7f7f7" : "#f0f0f0" }}>
-                <span style={{ fontFamily: "'DM Mono', monospace", fontSize: 12, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
+                <span style={{ fontFamily: "ui-monospace, Consolas, monospace", fontSize: 12, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
                 <span style={{ fontSize: 11, color: "#888", flexShrink: 0 }}>{(f.size / 1024 / 1024).toFixed(1)} MB</span>
               </div>
             ))}
@@ -395,7 +469,7 @@ function AppInner() {
           </div>
         )}
 
-        <div style={{ marginTop: 14, border: "0.5px solid #eee", borderRadius: 8, overflow: "hidden" }}>
+        <div style={{ marginTop: 14, border: "1px solid #dadada", borderRadius: 4, overflow: "hidden" }}>
           <div
             onClick={() => setVocabOpen(v => !v)}
             style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 14px", cursor: "pointer", background: "#fafafa" }}
@@ -406,14 +480,14 @@ function AppInner() {
             </span>
           </div>
           {vocabOpen && (
-            <div style={{ padding: "8px 14px", borderTop: "0.5px solid #eee" }}>
+            <div style={{ padding: "8px 14px", borderTop: "1px solid #dadada" }}>
               <textarea
                 value={boostWords}
                 onChange={e => setBoostWords(e.target.value)}
                 rows={10}
                 style={{
-                  width: "100%", fontSize: 13, fontFamily: "'Outfit', sans-serif",
-                  border: "0.5px solid #ddd", borderRadius: 6, padding: "8px 10px",
+                  width: "100%", fontSize: 13, fontFamily: "'Public Sans', Arial, sans-serif",
+                  border: "1px solid #b0b0b0", borderRadius: 3, padding: "8px 10px",
                   boxSizing: "border-box", resize: "vertical", lineHeight: 1.6,
                   color: "#333", background: "white"
                 }}
@@ -429,10 +503,10 @@ function AppInner() {
           return (
             <button onClick={handleUpload} disabled={disabled}
               style={{
-                width: "100%", padding: 13, marginTop: 14, borderRadius: 8, border: "none",
-                background: disabled ? "#f0f0f0" : "#185FA5",
+                width: "100%", padding: 13, marginTop: 14, borderRadius: 4, border: "none",
+                background: disabled ? "#f0f0f0" : "#1a4480",
                 color: disabled ? "#aaa" : "white",
-                fontFamily: "'Outfit', sans-serif", fontSize: 15, fontWeight: 500,
+                fontFamily: "'Public Sans', Arial, sans-serif", fontSize: 15, fontWeight: 500,
                 cursor: disabled ? "not-allowed" : "pointer"
               }}>
               {uploading ? "Uploading…" : "Transcribe"}
@@ -441,7 +515,7 @@ function AppInner() {
         })()}
 
         {status && (
-          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 8, marginTop: 10, background: statusBg[status], color: statusColor[status], fontSize: 13 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 4, marginTop: 10, background: statusBg[status], color: statusColor[status], fontSize: 13 }}>
             <div style={{ width: 7, height: 7, borderRadius: "50%", background: statusColor[status], flexShrink: 0 }} />
             {status === "done"
               ? <span>Done — <span onClick={() => setReviewing(true)} style={{ textDecoration: "underline", cursor: "pointer", fontWeight: 500 }}>Review transcript →</span></span>
@@ -453,8 +527,8 @@ function AppInner() {
       </div>
 
       {jobs.length > 0 && (
-        <div style={{ background: "white", border: "0.5px solid #e5e5e5", borderRadius: 12, overflow: "hidden" }}>
-          <div style={{ padding: "10px 16px", borderBottom: "0.5px solid #f0f0f0" }}>
+        <div style={{ background: "white", border: "1px solid #c9c9c9", borderRadius: 4, overflow: "hidden" }}>
+          <div style={{ padding: "10px 16px", borderBottom: "1px solid #f0f0f0" }}>
             <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.07em", textTransform: "uppercase", color: "#aaa" }}>
               Recent jobs
             </span>
@@ -463,7 +537,7 @@ function AppInner() {
             <div key={job.id} style={{
               display: "grid", gridTemplateColumns: "1fr 80px 80px auto",
               gap: 12, padding: "10px 16px", alignItems: "center",
-              borderBottom: i < jobs.length - 1 ? "0.5px solid #f0f0f0" : "none",
+              borderBottom: i < jobs.length - 1 ? "1px solid #f0f0f0" : "none",
               background: i % 2 === 0 ? "white" : "#fafafa"
             }}>
               <span style={{ fontSize: 13, color: "#222", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -475,10 +549,10 @@ function AppInner() {
                 ? <button
                     onClick={() => openReview(job.id)}
                     style={{
-                      fontSize: 12, padding: "4px 12px", borderRadius: 6,
-                      border: `0.5px solid ${job.audio_available ? "#185FA5" : "#ddd"}`,
+                      fontSize: 12, padding: "4px 12px", borderRadius: 3,
+                      border: `1px solid ${job.audio_available ? "#1a4480" : "#b0b0b0"}`,
                       background: "white",
-                      color: job.audio_available ? "#185FA5" : "#aaa",
+                      color: job.audio_available ? "#1a4480" : "#aaa",
                       cursor: "pointer"
                     }}
                   >
@@ -486,8 +560,8 @@ function AppInner() {
                   </button>
                 : <span style={{
                     fontSize: 11, padding: "3px 8px", borderRadius: 4, fontWeight: 500,
-                    background: job.status === "error" ? "#FCEBEB" : "#E6F1FB",
-                    color: job.status === "error" ? "#A32D2D" : "#185FA5"
+                    background: job.status === "error" ? "#FCEBEB" : "#e7ecf1",
+                    color: job.status === "error" ? "#A32D2D" : "#1a4480"
                   }}>
                     {job.status}
                   </span>
@@ -496,6 +570,9 @@ function AppInner() {
           ))}
         </div>
       )}
+      </div>
+
+      <SiteFooter />
     </div>
   )
 }
