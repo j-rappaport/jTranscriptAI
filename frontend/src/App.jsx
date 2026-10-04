@@ -41,10 +41,10 @@ export function BrandLogo() {
       </svg>
       <div style={{ textAlign: "left" }}>
         <div style={{ fontFamily: BRAND_FONT, fontSize: 18, fontWeight: 600, letterSpacing: "0.2px", color: "white" }}>
-          Court Echo
+          Court Record Pro
         </div>
         <div style={{ fontFamily: BRAND_FONT, fontSize: 11, fontWeight: 400, color: "#cdd8e6", marginTop: -3 }}>
-          Legal transcription service
+          Legal proceeding transcription service
         </div>
       </div>
     </div>
