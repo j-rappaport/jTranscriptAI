@@ -130,10 +130,10 @@ def db_update_done(job_id: str, blocks: list, duration_ms: int):
             cur.execute(
                 """
                 UPDATE jobs
-                SET status='done', utterances=%s, audio_duration_ms=%s
+                SET status='done', utterances=%s, original_utterances=%s, audio_duration_ms=%s
                 WHERE id=%s
                 """,
-                (psycopg2.extras.Json(blocks), duration_ms, job_id)
+                (psycopg2.extras.Json(blocks), psycopg2.extras.Json(blocks), duration_ms, job_id)
             )
 
 
@@ -194,6 +194,30 @@ def db_deduct_credits(user_id: str, ms: int):
                 "UPDATE user_credits SET credits_ms = credits_ms - %s WHERE user_id = %s",
                 (ms, user_id)
             )
+
+
+def db_get_settings(user_id: str) -> dict:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT settings FROM user_settings WHERE user_id=%s", (user_id,))
+            row = cur.fetchone()
+            return row[0] if row else {}
+
+
+def db_update_settings(user_id: str, settings: dict) -> dict:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO user_settings (user_id, settings)
+                VALUES (%s, %s)
+                ON CONFLICT (user_id) DO UPDATE
+                SET settings = user_settings.settings || EXCLUDED.settings, updated_at = now()
+                RETURNING settings
+                """,
+                (user_id, psycopg2.extras.Json(settings))
+            )
+            return cur.fetchone()[0]
 
 
 def read_tutc_timestamp(data: bytes):
@@ -499,6 +523,16 @@ def audio_available(job_id: str, user: str = Depends(require_auth)):
 def get_credits(user: str = Depends(require_auth)):
     ms = db_get_credits(user)
     return {"credits_ms": ms, "credits_hours": round(ms / 3_600_000, 2)}
+
+
+@app.get("/settings")
+def get_settings(user: str = Depends(require_auth)):
+    return db_get_settings(user)
+
+
+@app.put("/settings")
+def update_settings(body: dict, user: str = Depends(require_auth)):
+    return db_update_settings(user, body)
 
 
 @app.post("/billing/checkout")
