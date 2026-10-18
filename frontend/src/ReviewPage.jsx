@@ -10,10 +10,7 @@ const SHORTCUTS = [
   { keys: "← →",       desc: "Skip ±4 seconds" },
   { keys: "[ ]",        desc: "Slow down / speed up" },
   { keys: "↑ ↓",       desc: "Move selection" },
-  { keys: "Enter",      desc: "Edit selected block" },
-  { keys: "Shift+Enter", desc: "New line while editing" },
   { keys: "Ctrl+i",     desc: "Split utterance at cursor" },
-  { keys: "Escape",     desc: "Cancel edit" },
   { keys: "s",          desc: "Select speaker" },
   { keys: "i",          desc: "Insert utterance below" },
   { keys: "x",          desc: "Delete selected block" },
@@ -86,21 +83,21 @@ function InsertMenu({ onInsert, onDelete, onClose }) {
         background: "white", border: "1px solid #b0b0b0", borderRadius: 4,
         boxShadow: "0 4px 12px rgba(0,0,0,0.08)", padding: "4px 0", minWidth: 160
       }}>
-        <button onClick={() => onInsert("qa_toggle")} style={{ ...itemStyle, color: "#222" }}
+        <button onMouseDown={e => e.preventDefault()} onClick={() => onInsert("qa_toggle")} style={{ ...itemStyle, color: "#222" }}
           onMouseEnter={e => e.target.style.background = "#f5f5f5"}
           onMouseLeave={e => e.target.style.background = "none"}>
           Insert QA Toggle
         </button>
         <div style={{ borderTop: "1px solid #f0f0f0", margin: "4px 0" }} />
         {Object.entries(META_BLOCKS).map(([type, meta]) => (
-          <button key={type} onClick={() => onInsert(type)} style={{ ...itemStyle, color: "#222" }}
+          <button key={type} onMouseDown={e => e.preventDefault()} onClick={() => onInsert(type)} style={{ ...itemStyle, color: "#222" }}
             onMouseEnter={e => e.target.style.background = "#f5f5f5"}
             onMouseLeave={e => e.target.style.background = "none"}>
             Insert {meta.label}
           </button>
         ))}
         <div style={{ borderTop: "1px solid #f0f0f0", margin: "4px 0" }} />
-        <button onClick={onDelete} style={{ ...itemStyle, color: "#ef4444" }}
+        <button onMouseDown={e => e.preventDefault()} onClick={onDelete} style={{ ...itemStyle, color: "#ef4444" }}
           onMouseEnter={e => e.target.style.background = "#fef2f2"}
           onMouseLeave={e => e.target.style.background = "none"}>
           Delete
@@ -136,7 +133,81 @@ function computeBlockDisplay(blocks) {
   return { roles, toggleStates, sectionIndices }
 }
 
-function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, isEditing, draft, textareaRef, onSelect, onStartEdit, onConfirmEdit, onCancelEdit, onDraftChange, onRenameOne, onSplitHere, onMetaFieldChange, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete, onUpdateText }) {
+function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onFocusNext, onFocusPrev, onFocusSelf, textareaRef }) {
+  const mirrorRef = useRef(null)
+  const measureRef = useRef(null)
+
+  const sharedStyle = {
+    fontSize: 13, lineHeight: 1.6, fontFamily: "inherit",
+    padding: "4px 8px", border: "1px solid transparent",
+    boxSizing: "border-box", gridArea: "1 / 1 / 2 / 2", width: "100%",
+  }
+
+  function lineCountUpTo(cursorPos) {
+    if (!measureRef.current) return 0
+    measureRef.current.textContent = text.slice(0, cursorPos) + "​"
+    const cs = getComputedStyle(measureRef.current)
+    const lineHeightPx = parseFloat(cs.lineHeight) || 1
+    const paddingV = (parseFloat(cs.paddingTop) || 0) * 2
+    return Math.round((measureRef.current.scrollHeight - paddingV) / lineHeightPx)
+  }
+
+  function totalLineCount() {
+    if (!mirrorRef.current) return 0
+    const cs = getComputedStyle(mirrorRef.current)
+    const lineHeightPx = parseFloat(cs.lineHeight) || 1
+    const paddingV = (parseFloat(cs.paddingTop) || 0) * 2
+    return Math.round((mirrorRef.current.scrollHeight - paddingV) / lineHeightPx)
+  }
+
+  return (
+    <div style={{ display: "grid" }}>
+      <div ref={mirrorRef} style={{
+        ...sharedStyle,
+        whiteSpace: "pre-wrap", wordWrap: "break-word", visibility: "hidden", alignSelf: "start",
+      }}>
+        {text + "​"}
+      </div>
+      <div ref={measureRef} style={{
+        ...sharedStyle,
+        whiteSpace: "pre-wrap", wordWrap: "break-word", visibility: "hidden", alignSelf: "start",
+      }} />
+      <textarea
+        ref={textareaRef}
+        value={text}
+        onChange={e => onTextChange(e.target.value)}
+        onBlur={onTextBlur}
+        onFocus={onFocusSelf}
+        onKeyDown={e => {
+          if (e.key === "i" && e.ctrlKey) {
+            e.preventDefault()
+            const cursor = e.target.selectionStart
+            onSplitHere(index, e.target.value.slice(0, cursor), e.target.value.slice(cursor))
+          } else if (e.key === "ArrowDown") {
+            if (lineCountUpTo(e.target.selectionStart) >= totalLineCount()) {
+              e.preventDefault()
+              onFocusNext()
+            }
+          } else if (e.key === "ArrowUp") {
+            if (lineCountUpTo(e.target.selectionStart) <= 1) {
+              e.preventDefault()
+              onFocusPrev()
+            }
+          }
+        }}
+        style={{
+          ...sharedStyle,
+          height: "100%", color: "#222",
+          borderRadius: 3, background: "transparent",
+          resize: "none", overflow: "hidden", outline: "none",
+          caretColor: "#dc2626",
+        }}
+      />
+    </div>
+  )
+}
+
+function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, onSelect, onTextChange, onTextBlur, onRenameOne, onSplitHere, onFocusNext, onFocusPrev, onMetaFieldChange, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete, textareaRef }) {
   const isInQA = block.type === "qa_toggle" ? toggleState : !!role
   const rowBg = isSelected ? "#dcfce7" : (sectionIndex % 2 === 0 ? "white" : "#fafafa")
 
@@ -164,6 +235,7 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, i
   const insertBtn = (
     <div style={{ position: "relative" }}>
       <button
+        onMouseDown={e => e.preventDefault()}
         onClick={e => { e.stopPropagation(); insertMenuOpen ? onCloseInsertMenu() : onOpenInsertMenu() }}
         title="Insert below"
         style={{ ...iconBtnStyle, border: "1px solid #e0e0e0", background: "white", color: "#bbb" }}
@@ -200,7 +272,15 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, i
   if (meta) {
     const fields = block.fields || {}
     return (
-      <div style={rowStyle} onClick={onSelect} data-block-index={index}>
+      <div
+        style={rowStyle}
+        onClick={() => {
+          onSelect()
+          const el = document.querySelector(`[data-block-index="${index}"] input`)
+          if (el) { el.focus(); el.setSelectionRange(0, 0) }
+        }}
+        data-block-index={index}
+      >
         <div style={{ gridColumn: "1 / -2" }}>
           <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", letterSpacing: "0.06em", fontStyle: "italic", marginBottom: 4 }}>
             {meta.label}
@@ -213,6 +293,11 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, i
                   type="text"
                   value={fields[field] ?? ""}
                   onChange={e => onMetaFieldChange(field, e.target.value)}
+                  onFocus={onSelect}
+                  onKeyDown={e => {
+                    if (e.key === "ArrowDown") { e.preventDefault(); onFocusNext() }
+                    else if (e.key === "ArrowUp") { e.preventDefault(); onFocusPrev() }
+                  }}
                   placeholder="—"
                   style={{
                     fontSize: 13, padding: "2px 7px", borderRadius: 3,
@@ -220,6 +305,7 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, i
                     background: "white", color: "#222", fontFamily: "inherit",
                     minWidth: meta.fields.length === 1 ? 200 : 90,
                     outline: "none",
+                    caretColor: "#dc2626",
                   }}
                 />
               </label>
@@ -238,13 +324,21 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, i
   }
 
   return (
-    <div style={rowStyle} onClick={onSelect} data-block-index={index}>
+    <div
+      style={rowStyle}
+      onClick={() => {
+        onSelect()
+        const el = document.querySelector(`[data-block-index="${index}"] textarea`)
+        if (el) { el.focus(); el.setSelectionRange(0, 0) }
+      }}
+      data-block-index={index}
+    >
       <span style={{ fontFamily: "ui-monospace, Consolas, monospace", fontSize: 12, color: "#888", paddingTop: 2 }}>
         {msToTimecode(block.start_ms)}
       </span>
 
       <span
-        onClick={() => onRenameOne(index)}
+        onClick={e => { e.stopPropagation(); onRenameOne(index) }}
         style={{ fontSize: 12, fontWeight: 500, color: "#1a4480", cursor: "pointer", lineHeight: 1.3 }}
         title="Rename speaker"
       >
@@ -255,38 +349,23 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, i
         {role}
       </span>
 
-      <div onClick={isEditing ? undefined : onStartEdit} style={{ cursor: isEditing ? "default" : "text", minHeight: 28 }}>
-        {isEditing ? (
-          <textarea
-            ref={textareaRef}
-            autoFocus
-            value={draft}
-            onChange={e => onDraftChange(e.target.value)}
-            onBlur={onConfirmEdit}
-            onKeyDown={e => {
-              e.stopPropagation()
-              if (e.key === "i" && e.ctrlKey) {
-                e.preventDefault()
-                const cursor = e.target.selectionStart
-                onSplitHere(index, draft.slice(0, cursor), draft.slice(cursor))
-                return
-              }
-              if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onConfirmEdit() }
-              if (e.key === "Escape") onCancelEdit()
-            }}
-            style={{
-              width: "100%", fontSize: 13, lineHeight: 1.6, fontFamily: "inherit",
-              padding: "4px 8px", borderRadius: 3, border: "1px solid #1a4480",
-              resize: "none", boxSizing: "border-box", overflow: "hidden"
-            }}
-          />
-        ) : (
-          <span style={{ fontSize: 13, color: "#222", lineHeight: 1.6 }}>{block.text}</span>
-        )}
+      <div style={{ minHeight: 28 }} onClick={e => e.stopPropagation()}>
+        <UtteranceText
+          index={index}
+          text={block.text}
+          onTextChange={value => onTextChange(index, value)}
+          onTextBlur={onTextBlur}
+          onSplitHere={onSplitHere}
+          onFocusNext={onFocusNext}
+          onFocusPrev={onFocusPrev}
+          onFocusSelf={onSelect}
+          textareaRef={textareaRef}
+        />
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end" }}>
         <button
+          onMouseDown={e => e.preventDefault()}
           onClick={playFrom}
           disabled={!audioAvailable}
           style={{
@@ -318,17 +397,14 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   const [renameEditing, setRenameEditing] = useState(false)
   const [insertMenuIndex, setInsertMenuIndex] = useState(null)
   const [selectedIndex, setSelectedIndex] = useState(0)
-  const [editingIndex, setEditingIndex] = useState(null)
-  const [draft, setDraft] = useState("")
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [playbackRate, setPlaybackRate] = useState(1)
   const [menuOpen, setMenuOpen] = useState(false)
   const audioRef = useRef(null)
   const blocksRef = useRef(null)
   const selectedIndexRef = useRef(0)
-  const cancelledRef = useRef(false)
-  const draftCacheRef = useRef({})
-  const textareaRef = useRef(null)
+  const saveTimerRef = useRef(null)
+  const firstUtteranceRef = useRef(null)
   const deleteBlockRef = useRef(null)
   const modalRef = useRef(null)
   const renameTargetRef = useRef(null)
@@ -340,12 +416,10 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   useEffect(() => {
     if (blocks) setSelectedIndex(i => Math.min(i, Math.max(0, blocks.length - 1)))
   }, [blocks])
+
   useEffect(() => {
-    if (editingIndex !== null && textareaRef.current) {
-      textareaRef.current.style.height = "auto"
-      textareaRef.current.style.height = textareaRef.current.scrollHeight + "px"
-    }
-  }, [editingIndex, draft])
+    if (!loading) firstUtteranceRef.current?.focus()
+  }, [loading])
 
   useEffect(() => {
     function handleKey(e) {
@@ -354,14 +428,10 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
       if (tag === "INPUT" || tag === "TEXTAREA") return
       if (e.key === "ArrowUp") {
         e.preventDefault()
-        setSelectedIndex(i => Math.max(0, i - 1))
+        focusAdjacentBlock(selectedIndexRef.current, -1)
       } else if (e.key === "ArrowDown") {
         e.preventDefault()
-        setSelectedIndex(i => Math.min((blocksRef.current?.length ?? 1) - 1, i + 1))
-      } else if (e.key === "Enter") {
-        const idx = selectedIndexRef.current
-        const block = blocksRef.current?.[idx]
-        if (block?.type === "utterance") { e.preventDefault(); cancelledRef.current = false; setDraft(draftCacheRef.current[idx] ?? block.text); setEditingIndex(idx) }
+        focusAdjacentBlock(selectedIndexRef.current, 1)
       } else if (e.key === "s") {
         const idx = selectedIndexRef.current
         const block = blocksRef.current?.[idx]
@@ -492,39 +562,56 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     })
   }
 
-  function startEditBlock(index) {
-    cancelledRef.current = false
-    setDraft(draftCacheRef.current[index] ?? blocks[index].text)
-    setEditingIndex(index)
-  }
-
-  function cancelEdit() {
-    cancelledRef.current = true
-    setEditingIndex(null)
-  }
-
-  function confirmEdit() {
-    if (cancelledRef.current) return
-    cancelledRef.current = true
-    delete draftCacheRef.current[editingIndex]
-    updateText(editingIndex, draft)
-    setEditingIndex(null)
-  }
-
-  function handleDraftChange(value) {
-    setDraft(value)
-    if (editingIndex !== null) draftCacheRef.current[editingIndex] = value
-  }
-
-  async function updateText(index, newText) {
-    const updated = blocks.map((b, i) => i === index ? { ...b, text: newText } : b)
-    setBlocks(updated)
+  async function saveBlocksNow() {
+    if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null }
+    const current = blocksRef.current
+    if (!current) return
     const headers = await authHeaders()
     fetch(`${API}/jobs/${jobId}/blocks`, {
       method: "PUT",
       headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify({ blocks: updated }),
+      body: JSON.stringify({ blocks: current }),
     })
+  }
+
+  function scheduleSave() {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(saveBlocksNow, 1000)
+  }
+
+  function handleTextChange(index, value) {
+    setBlocks(prev => prev.map((b, i) => i === index ? { ...b, text: value } : b))
+    scheduleSave()
+  }
+
+  function focusAdjacentBlock(fromIndex, direction) {
+    const cur = blocksRef.current
+    const target = fromIndex + direction
+    if (!cur || target < 0 || target >= cur.length) return
+    setSelectedIndex(target)
+
+    const block = cur[target]
+    const meta = META_BLOCKS[block.type]
+    let el = null
+
+    if (block.type === "utterance") {
+      el = document.querySelector(`[data-block-index="${target}"] textarea`)
+    } else if (meta) {
+      const fields = block.fields || {}
+      const hasText = meta.fields.some(f => (fields[f] || "").trim() !== "")
+      if (hasText) {
+        const inputs = document.querySelectorAll(`[data-block-index="${target}"] input`)
+        el = direction > 0 ? inputs[0] : inputs[inputs.length - 1]
+      }
+    }
+
+    if (el) {
+      el.focus()
+      const pos = direction > 0 ? 0 : el.value.length
+      el.setSelectionRange(pos, pos)
+    } else {
+      document.activeElement?.blur()
+    }
   }
 
   async function deleteBlock(index) {
@@ -541,14 +628,11 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   }
 
   async function splitUtterance(index, beforeText, afterText) {
-    cancelledRef.current = true
-    delete draftCacheRef.current[index]
     const speaker = blocks[index].speaker
     const newBlock = { type: "utterance", speaker, text: afterText, start_ms: blocks[index]?.end_ms ?? 0, end_ms: blocks[index]?.end_ms ?? 0 }
     const updated = blocks.map((b, i) => i === index ? { ...b, text: beforeText } : b)
     const withNew = [...updated.slice(0, index + 1), newBlock, ...updated.slice(index + 1)]
     setBlocks(withNew)
-    setEditingIndex(null)
     setSelectedIndex(index + 1)
     const headers = await authHeaders()
     fetch(`${API}/jobs/${jobId}/blocks`, {
@@ -557,9 +641,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
       body: JSON.stringify({ blocks: withNew }),
     })
     setTimeout(() => {
-      cancelledRef.current = false
-      setDraft(afterText)
-      setEditingIndex(index + 1)
+      document.querySelector(`[data-block-index="${index + 1}"] textarea`)?.focus()
     }, 0)
   }
 
@@ -666,6 +748,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
           <BrandLogo onClick={onBack} />
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
             <button
+              onMouseDown={e => e.preventDefault()}
               onClick={onBack}
               style={{
                 fontSize: 12, padding: "6px 12px", borderRadius: 3,
@@ -677,6 +760,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
             </button>
             <div style={{ position: "relative" }}>
               <button
+                onMouseDown={e => e.preventDefault()}
                 onClick={() => setMenuOpen(v => !v)}
                 aria-label="Menu"
                 style={{
@@ -694,13 +778,13 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
                   borderRadius: 3, boxShadow: "0 4px 10px rgba(0,0,0,0.15)", padding: 12, minWidth: 170, zIndex: 100,
                   display: "flex", flexDirection: "column", gap: 8
                 }}>
-                  <button onClick={() => { saveBlob(); setMenuOpen(false) }} style={{ fontSize: 13, padding: "7px 10px", borderRadius: 4, border: "1px solid #b0b0b0", background: "white", color: "#555", cursor: "pointer", textAlign: "left" }}>
+                  <button onMouseDown={e => e.preventDefault()} onClick={() => { saveBlob(); setMenuOpen(false) }} style={{ fontSize: 13, padding: "7px 10px", borderRadius: 4, border: "1px solid #b0b0b0", background: "white", color: "#555", cursor: "pointer", textAlign: "left" }}>
                     💾 Save blob
                   </button>
-                  <button onClick={() => { saveDocx(); setMenuOpen(false) }} style={{ fontSize: 13, padding: "7px 10px", borderRadius: 4, border: "1px solid #1a4480", background: "white", color: "#1a4480", cursor: "pointer", fontWeight: 600, textAlign: "left" }}>
+                  <button onMouseDown={e => e.preventDefault()} onClick={() => { saveDocx(); setMenuOpen(false) }} style={{ fontSize: 13, padding: "7px 10px", borderRadius: 4, border: "1px solid #1a4480", background: "white", color: "#1a4480", cursor: "pointer", fontWeight: 600, textAlign: "left" }}>
                     💾 Save .docx
                   </button>
-                  <button onClick={() => { saveTranscript(); setMenuOpen(false) }} style={{ fontSize: 13, padding: "7px 10px", borderRadius: 4, border: "1px solid #b0b0b0", background: "white", color: "#555", cursor: "pointer", textAlign: "left" }}>
+                  <button onMouseDown={e => e.preventDefault()} onClick={() => { saveTranscript(); setMenuOpen(false) }} style={{ fontSize: 13, padding: "7px 10px", borderRadius: 4, border: "1px solid #b0b0b0", background: "white", color: "#555", cursor: "pointer", textAlign: "left" }}>
                     💾 Save .txt
                   </button>
                 </div>
@@ -727,6 +811,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
             {SPEED_PRESETS.map(r => (
               <button
                 key={r}
+                onMouseDown={e => e.preventDefault()}
                 onClick={() => setPlaybackRate(r)}
                 style={{
                   fontSize: 11, padding: "2px 8px", borderRadius: 4, cursor: "pointer",
@@ -754,36 +839,36 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
           <span></span>
         </div>
 
-        {blocks.map((block, i) => (
-          <BlockRow
-            key={i}
-            index={i}
-            block={block}
-            role={roles[i]}
-            toggleState={toggleStates[i]}
-            sectionIndex={sectionIndices[i]}
-            onRenameOne={openRenameOne}
-            onSplitHere={splitUtterance}
-            audioRef={audioRef}
-            audioAvailable={audioAvailable}
-            insertMenuOpen={insertMenuIndex === i}
-            onOpenInsertMenu={() => setInsertMenuIndex(i)}
-            onCloseInsertMenu={() => setInsertMenuIndex(null)}
-            onInsert={type => insertBlock(i, type)}
-            onDelete={() => deleteBlock(i)}
-            isSelected={selectedIndex === i}
-            isEditing={editingIndex === i}
-            draft={draft}
-            textareaRef={editingIndex === i ? textareaRef : null}
-            onSelect={() => setSelectedIndex(i)}
-            onStartEdit={() => startEditBlock(i)}
-            onConfirmEdit={confirmEdit}
-            onCancelEdit={cancelEdit}
-            onDraftChange={handleDraftChange}
-            onMetaFieldChange={(field, value) => updateMetaField(i, field, value)}
-            onUpdateText={updateText}
-          />
-        ))}
+        {(() => {
+          const firstUtteranceIndex = blocks.findIndex(b => b.type === "utterance")
+          return blocks.map((block, i) => (
+            <BlockRow
+              key={i}
+              index={i}
+              block={block}
+              role={roles[i]}
+              toggleState={toggleStates[i]}
+              sectionIndex={sectionIndices[i]}
+              onRenameOne={openRenameOne}
+              onSplitHere={splitUtterance}
+              onFocusNext={() => focusAdjacentBlock(i, 1)}
+              onFocusPrev={() => focusAdjacentBlock(i, -1)}
+              audioRef={audioRef}
+              audioAvailable={audioAvailable}
+              insertMenuOpen={insertMenuIndex === i}
+              onOpenInsertMenu={() => setInsertMenuIndex(i)}
+              onCloseInsertMenu={() => setInsertMenuIndex(null)}
+              onInsert={type => insertBlock(i, type)}
+              onDelete={() => deleteBlock(i)}
+              isSelected={selectedIndex === i}
+              onSelect={() => setSelectedIndex(i)}
+              onTextChange={handleTextChange}
+              onTextBlur={saveBlocksNow}
+              onMetaFieldChange={(field, value) => updateMetaField(i, field, value)}
+              textareaRef={i === firstUtteranceIndex ? firstUtteranceRef : null}
+            />
+          ))
+        })()}
       </div>
 
       {renameTarget && (() => {
@@ -935,6 +1020,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
           </div>
         )}
         <button
+          onMouseDown={e => e.preventDefault()}
           onClick={() => setShortcutsOpen(o => !o)}
           title="Keyboard shortcuts"
           style={{ width: 36, height: 36, borderRadius: "50%", border: "1px solid #b0b0b0", background: "white", cursor: "pointer", fontSize: 16, boxShadow: "0 2px 8px rgba(0,0,0,0.08)", display: "flex", alignItems: "center", justifyContent: "center" }}
