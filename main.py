@@ -3,6 +3,7 @@ import os
 import re
 import struct
 import threading
+import time
 import asyncio
 import shutil
 import errno
@@ -13,12 +14,13 @@ import psycopg2.extras
 import assemblyai as aai
 import stripe
 import ffmpeg
+from datetime import datetime, timezone
 from docx import Document
 from docx.shared import Pt
 from docx.enum.text import WD_LINE_SPACING, WD_ALIGN_PARAGRAPH
 from fastapi import FastAPI, UploadFile, File, HTTPException, Header, Request, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from dotenv import load_dotenv
 from fastapi import Depends
 from typing import List
@@ -31,6 +33,11 @@ from fastapi.responses import HTMLResponse
 load_dotenv()
 
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+AUDIO_BUCKET = "audio"
+DEFAULT_AUDIO_RETENTION_DAYS = 1825  # 5 years
 
 CREDIT_PACKS = {
     "30m": {"hours": 0.5, "price_cents": 100,  "label": "30 minutes"},
@@ -49,6 +56,7 @@ async def mark_stuck_jobs():
                 "UPDATE jobs SET status='error', error='Interrupted — server restarted during transcription' "
                 "WHERE status IN ('pending', 'transcribing')"
             )
+    threading.Thread(target=run_retention_cleanup_loop, daemon=True).start()
 
 app.add_middleware(
     CORSMiddleware,
@@ -115,6 +123,12 @@ def db_create_job(job_id: str, filename: str, audio_path: str, user_id: str):
             )
 
 
+def db_update_audio_path(job_id: str, audio_path: str):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE jobs SET audio_path=%s WHERE id=%s", (audio_path, job_id))
+
+
 def db_update_status(job_id: str, status: str, error: str = None):
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -162,7 +176,7 @@ def db_get_all_jobs(user_id: str) -> list:
             )
             rows = [dict(row) for row in cur.fetchall()]
             for row in rows:
-                row["audio_available"] = bool(row["audio_path"] and os.path.exists(row["audio_path"]))
+                row["audio_available"] = bool(row["audio_path"])
                 del row["audio_path"]
             return rows
 
@@ -242,15 +256,81 @@ def extract_case_name(filename: str) -> str:
     return m.group(1) if m else os.path.splitext(filename)[0]
 
 
-def delete_old_audio(user_id: str):
+# ---------------------------------------------------------------------------
+# Supabase Storage (audio)
+# ---------------------------------------------------------------------------
+
+def _storage_headers():
+    return {
+        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+        "apikey": SUPABASE_SERVICE_ROLE_KEY,
+    }
+
+
+def storage_upload(key: str, local_path: str):
+    mime_type, _ = mimetypes.guess_type(local_path)
+    with open(local_path, "rb") as f:
+        resp = httpx.post(
+            f"{SUPABASE_URL}/storage/v1/object/{AUDIO_BUCKET}/{key}",
+            headers={**_storage_headers(), "Content-Type": mime_type or "application/octet-stream"},
+            content=f.read(),
+            timeout=120,
+        )
+    resp.raise_for_status()
+
+
+def storage_sign_url(key: str, expires_in: int = 3600) -> str:
+    resp = httpx.post(
+        f"{SUPABASE_URL}/storage/v1/object/sign/{AUDIO_BUCKET}/{key}",
+        headers={**_storage_headers(), "Content-Type": "application/json"},
+        json={"expiresIn": expires_in},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return f"{SUPABASE_URL}/storage/v1{resp.json()['signedURL']}"
+
+
+def storage_delete(key: str):
+    resp = httpx.delete(
+        f"{SUPABASE_URL}/storage/v1/object/{AUDIO_BUCKET}/{key}",
+        headers=_storage_headers(),
+        timeout=30,
+    )
+    resp.raise_for_status()
+
+
+def cleanup_expired_audio():
     with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT audio_path FROM jobs WHERE audio_path IS NOT NULL AND user_id=%s", (user_id,))
-            rows = cur.fetchall()
-            for row in rows:
-                path = row[0]
-                if path and os.path.exists(path):
-                    os.remove(path)
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT id, user_id, audio_path, created_at FROM jobs WHERE audio_path IS NOT NULL")
+            jobs = cur.fetchall()
+
+    for job in jobs:
+        retention_days = db_get_settings(job["user_id"]).get("audio_retention_days", DEFAULT_AUDIO_RETENTION_DAYS)
+        if retention_days is None:
+            continue  # explicit "keep forever"
+        age_days = (datetime.now(timezone.utc) - job["created_at"]).days
+        if age_days <= retention_days:
+            continue
+        try:
+            storage_delete(job["audio_path"])
+        except Exception as e:
+            print(f"Retention cleanup: failed to delete audio for job {job['id']}: {e}")
+            continue
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE jobs SET audio_path=NULL WHERE id=%s", (job["id"],))
+
+
+def run_retention_cleanup_loop():
+    while True:
+        try:
+            cleanup_expired_audio()
+        except Exception as e:
+            print(f"Retention cleanup loop failed: {e}")
+        time.sleep(24 * 60 * 60)
+
+
 # ---------------------------------------------------------------------------
 # Docx generation
 # ---------------------------------------------------------------------------
@@ -408,7 +488,6 @@ async def create_job(files: List[UploadFile] = File(...), word_boost: str = Form
     if free_bytes < 150 * 1024 * 1024:
         raise HTTPException(status_code=507, detail="Server storage is full — contact administrator.")
 
-    delete_old_audio(user)
     job_id = str(uuid.uuid4())
 
     needs_ffmpeg = len(audio_files) > 1 or any(f.filename.lower().endswith('.trm') for f in audio_files)
@@ -449,13 +528,14 @@ async def create_job(files: List[UploadFile] = File(...), word_boost: str = Form
             raise HTTPException(status_code=507, detail="Server storage is full — contact administrator.")
         raise
 
-    db_create_job(job_id, filename, audio_path, user)
+    storage_key = f"{user}/{job_id}{os.path.splitext(audio_path)[1]}"
+    db_create_job(job_id, filename, None, user)
 
     boost_words = [w.strip() for w in word_boost.splitlines() if w.strip()]
 
     threading.Thread(
         target=run_transcription,
-        args=(job_id, audio_path, user, boost_words),
+        args=(job_id, audio_path, storage_key, user, boost_words),
         daemon=True
     ).start()
 
@@ -476,10 +556,9 @@ def get_audio(job_id: str):
     job = db_get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    path = job["audio_path"]
-    mime_type, _ = mimetypes.guess_type(path)
-    print(f"Serving audio: {path}, mime: {mime_type}")
-    return FileResponse(path, media_type=mime_type or "audio/mpeg")
+    if not job["audio_path"]:
+        raise HTTPException(status_code=404, detail="Audio not available")
+    return RedirectResponse(storage_sign_url(job["audio_path"]))
 
 @app.get("/jobs")
 def get_all_jobs(user: str = Depends(require_auth)):
@@ -515,8 +594,7 @@ def audio_available(job_id: str, user: str = Depends(require_auth)):
     job = db_get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    path = job["audio_path"]
-    return {"available": bool(path and os.path.exists(path))}
+    return {"available": bool(job["audio_path"])}
 
 
 @app.get("/credits")
@@ -581,7 +659,16 @@ async def stripe_webhook(request: Request):
 # Transcription
 # ---------------------------------------------------------------------------
 
-def run_transcription(job_id: str, audio_path: str, user_id: str, boost_words: list = []):
+def run_transcription(job_id: str, audio_path: str, storage_key: str, user_id: str, boost_words: list = []):
+    try:
+        storage_upload(storage_key, audio_path)
+        db_update_audio_path(job_id, storage_key)
+    except Exception as e:
+        db_update_status(job_id, "error", f"Audio upload failed: {e}")
+        if os.path.exists(audio_path):
+            os.remove(audio_path)
+        return
+
     try:
         db_update_status(job_id, "transcribing")
 
@@ -620,6 +707,9 @@ def run_transcription(job_id: str, audio_path: str, user_id: str, boost_words: l
 
     except Exception as e:
         db_update_status(job_id, "error", str(e))
+    finally:
+        if os.path.exists(audio_path):
+            os.remove(audio_path)
 
 FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "frontend", "dist")
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
