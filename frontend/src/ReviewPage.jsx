@@ -654,7 +654,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   const { roles, toggleStates, sectionIndices } = loading ? { roles: [], toggleStates: [], sectionIndices: [] } : computeBlockDisplay(blocks)
 
   if (loading) return (
-    <div style={{ fontFamily: "'Public Sans', Arial, sans-serif", maxWidth: 900, margin: "48px auto", padding: "0 20px" }}>
+    <div style={{ fontFamily: "'Public Sans', Arial, sans-serif", maxWidth: "min(1400px, 92vw)", margin: "48px auto", padding: "0 20px" }}>
       <p style={{ color: "#888" }}>Loading transcript…</p>
     </div>
   )
@@ -663,7 +663,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     <div style={{ fontFamily: "'Public Sans', Arial, sans-serif" }}>
       <div style={{ background: "#0d2c4f", height: 8 }} />
       <div style={{ background: "#1a4480", padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <BrandLogo />
+          <BrandLogo onClick={onBack} />
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
             <button
               onClick={onBack}
@@ -673,7 +673,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
                 color: "white", cursor: "pointer"
               }}
             >
-              Return to Jobs
+              Home
             </button>
             <div style={{ position: "relative" }}>
               <button
@@ -709,7 +709,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
           </div>
       </div>
 
-      <div style={{ maxWidth: 900, margin: "32px auto 48px", padding: "0 20px", textAlign: "left" }}>
+      <div style={{ maxWidth: "min(1400px, 92vw)", margin: "32px auto 48px", padding: "0 20px", textAlign: "left" }}>
 
       <div style={{ position: "sticky", top: 0, zIndex: 50, background: "white", border: "1px solid #c9c9c9", borderRadius: 4, padding: "12px 16px", marginBottom: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
 {audioAvailable

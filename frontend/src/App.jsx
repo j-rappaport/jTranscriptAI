@@ -25,9 +25,9 @@ function formatDate(iso) {
 
 const BRAND_FONT = "'Libre Franklin', Arial, sans-serif"
 
-export function BrandLogo() {
+export function BrandLogo({ onClick }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 13 }}>
+    <div onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 13, cursor: onClick ? "pointer" : "default" }}>
       <svg width="35" height="42" viewBox="0 0 100 120" fill="none" style={{ flexShrink: 0 }}>
         <path
           d="M50 6 C72 6 88 14 88 14 L88 55 C88 85 70 108 50 114 C30 108 12 85 12 55 L12 14 C12 14 28 6 50 6 Z"
@@ -56,7 +56,7 @@ function SiteFooter() {
   const link = { fontSize: 10, color: "#1a4480", textDecoration: "none", display: "block", marginBottom: 4 }
   return (
     <div style={{ background: "#f0f0f0", borderTop: "1px solid #c9c9c9", marginTop: 48, padding: "24px 20px" }}>
-      <div style={{ maxWidth: 660, margin: "0 auto", display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 20, textAlign: "left" }}>
+      <div style={{ maxWidth: "min(1100px, 92vw)", margin: "0 auto", display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 20, textAlign: "left" }}>
         <div>
           <div style={col}>Contact</div>
           <a href="#" style={link}>Support</a>
@@ -153,7 +153,7 @@ const CREDIT_PACKS = [
   { id: "50h", label: "50 hours", price: "$70" },
 ]
 
-function AppInner() {
+function HomePage() {
   const { getToken, isSignedIn, isLoaded } = useAuth()
   const [files, setFiles] = useState([])
   const [jobId, setJobId] = useState(null)
@@ -339,7 +339,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Public Sans', Arial, sans-serif" }}>
       <div style={{ background: "#0d2c4f", height: 8 }} />
       <div style={{ background: "#1a4480", padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <BrandLogo />
+          <BrandLogo onClick={() => window.location.reload()} />
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
             {creditsHours !== null && (
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
@@ -362,7 +362,7 @@ function AppInner() {
           </div>
       </div>
 
-      <div style={{ maxWidth: 660, margin: "32px auto 48px", padding: "0 20px" }}>
+      <div style={{ maxWidth: "min(1100px, 92vw)", margin: "32px auto 48px", padding: "0 20px" }}>
 
       {paymentNotice === "success" && (
         <div style={{ marginBottom: 16, padding: "10px 16px", background: "#EAF3DE", color: "#3B6D11", borderRadius: 4, fontSize: 13 }}>
@@ -558,7 +558,7 @@ export default function App() {
         userButtonAvatarBox: { backgroundColor: "#1a4480" },
       },
     }}>
-      <AppInner />
+      <HomePage />
     </ClerkProvider>
   )
 }
