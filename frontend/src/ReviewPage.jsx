@@ -339,13 +339,25 @@ function BlockRow({ block, index, role, sectionIndex, isSelected, onSelect, onTe
         {block.speaker}
       </span>
 
-      <span
+      <div
         onClick={e => { e.stopPropagation(); onToggleQa(index) }}
-        style={{ fontSize: 12, paddingTop: 2, cursor: "pointer", minHeight: "1em", minWidth: "100%", display: "inline-block", ...(ROLE_STYLE[role] || {}) }}
+        style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3, paddingTop: 3, cursor: "pointer" }}
         title={block.qa ? "Stop Q/A alternation here (unmarks this and everything after)" : "Start Q/A alternation here (marks this and everything after)"}
       >
-        {role}
-      </span>
+        <div style={{
+          width: 22, height: 12, borderRadius: 7, flexShrink: 0,
+          background: block.qa ? "#16a34a" : "#e5e5e5",
+          border: `1px solid ${block.qa ? "#16a34a" : "#c0c0c0"}`,
+          position: "relative",
+        }}>
+          <div style={{
+            position: "absolute", top: 1, left: block.qa ? 11 : 1,
+            width: 9, height: 9, borderRadius: "50%", background: "white",
+            boxShadow: "0 1px 2px rgba(0,0,0,0.3)",
+          }} />
+        </div>
+        <span style={{ fontSize: 12, lineHeight: 1, ...(ROLE_STYLE[role] || {}) }}>{role}</span>
+      </div>
 
       <div style={{ minHeight: 28 }} onClick={e => e.stopPropagation()}>
         <UtteranceText
