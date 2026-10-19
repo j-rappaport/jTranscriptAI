@@ -364,15 +364,17 @@ def _normalize(text):
 def _compute_roles(blocks):
     qa_on, next_role, roles = False, "Q", []
     for b in blocks:
-        if b.get("type") == "qa_toggle":
-            qa_on = not qa_on
-            if qa_on:
+        if b.get("type") == "utterance":
+            marked = bool(b.get("qa"))
+            if marked and not qa_on:
                 next_role = "Q"
-            roles.append("")
-        elif b.get("type") == "utterance" and qa_on:
-            r = next_role
-            next_role = "A" if r == "Q" else "Q"
-            roles.append(r)
+            qa_on = marked
+            if qa_on:
+                r = next_role
+                next_role = "A" if r == "Q" else "Q"
+                roles.append(r)
+            else:
+                roles.append("")
         else:
             roles.append("")
     return roles
@@ -408,9 +410,6 @@ def generate_docx(blocks):
         btype = block.get("type", "utterance")
         role = roles[i]
         fields = block.get("fields", {})
-
-        if btype == "qa_toggle":
-            continue
 
         if btype == "utterance":
             text = _normalize(block.get("text", ""))

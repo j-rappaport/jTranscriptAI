@@ -90,16 +90,10 @@ function InsertMenu({ onInsert, onDelete, onClose }) {
     <>
       <div style={{ position: "fixed", inset: 0, zIndex: 9 }} onClick={onClose} />
       <div style={{
-        position: "absolute", right: 0, top: "calc(100% + 4px)", zIndex: 10,
+        position: "absolute", left: 0, top: "calc(100% + 4px)", zIndex: 10,
         background: "white", border: "1px solid #b0b0b0", borderRadius: 4,
         boxShadow: "0 4px 12px rgba(0,0,0,0.08)", padding: "4px 0", minWidth: 160
       }}>
-        <button onMouseDown={e => e.preventDefault()} onClick={() => onInsert("qa_toggle")} style={{ ...itemStyle, color: "#222" }}
-          onMouseEnter={e => e.target.style.background = "#f5f5f5"}
-          onMouseLeave={e => e.target.style.background = "none"}>
-          Insert QA Toggle
-        </button>
-        <div style={{ borderTop: "1px solid #f0f0f0", margin: "4px 0" }} />
         {Object.entries(META_BLOCKS).map(([type, meta]) => (
           <button key={type} onMouseDown={e => e.preventDefault()} onClick={() => onInsert(type)} style={{ ...itemStyle, color: "#222" }}
             onMouseEnter={e => e.target.style.background = "#f5f5f5"}
@@ -125,23 +119,23 @@ const ROLE_STYLE = {
 
 function computeBlockDisplay(blocks) {
   let qaOn = false, next = "Q", sectionIdx = 0
-  const roles = [], toggleStates = [], sectionIndices = []
+  const roles = [], sectionIndices = []
   for (const b of blocks) {
-    if (b.type === "qa_toggle") {
-      qaOn = !qaOn
-      if (qaOn) next = "Q"
-      roles.push(""); toggleStates.push(qaOn); sectionIndices.push(0)
-      sectionIdx = 1
-    } else {
-      if (b.type === "utterance" && qaOn) {
+    if (b.type === "utterance") {
+      const marked = !!b.qa
+      if (marked && !qaOn) next = "Q"
+      qaOn = marked
+      if (qaOn) {
         const r = next; next = r === "Q" ? "A" : "Q"; roles.push(r)
       } else {
         roles.push("")
       }
-      toggleStates.push(null); sectionIndices.push(sectionIdx++)
+    } else {
+      roles.push("")
     }
+    sectionIndices.push(sectionIdx++)
   }
-  return { roles, toggleStates, sectionIndices }
+  return { roles, sectionIndices }
 }
 
 function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onFocusNext, onFocusPrev, onSelect, textareaRef }) {
@@ -218,12 +212,12 @@ function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onF
   )
 }
 
-function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, onSelect, onTextChange, onTextBlur, onRenameOne, onSplitHere, onFocusNext, onFocusPrev, onMetaFieldChange, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete, textareaRef }) {
+function BlockRow({ block, index, role, sectionIndex, isSelected, onSelect, onTextChange, onTextBlur, onRenameOne, onSplitHere, onFocusNext, onFocusPrev, onMetaFieldChange, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete, onToggleQa, textareaRef }) {
   const rowBg = isSelected ? "#dcfce7" : (sectionIndex % 2 === 0 ? "white" : "#fafafa")
 
   const rowStyle = {
     display: "grid",
-    gridTemplateColumns: "80px 160px 40px 1fr auto",
+    gridTemplateColumns: "110px 160px 40px 1fr",
     gap: 12,
     padding: "10px 16px",
     borderBottom: "1px solid #f0f0f0",
@@ -256,28 +250,6 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, o
     </div>
   )
 
-
-  if (block.type === "qa_toggle") {
-    const onColor = "#16a34a", offColor = "#dc2626"
-    const color = toggleState ? onColor : offColor
-    const bg = toggleState ? "#f0fdf4" : "#fef2f2"
-    const border = toggleState ? "#bbf7d0" : "#fecaca"
-    return (
-      <div style={rowStyle} onClick={onSelect} data-block-index={index}>
-        <span />
-        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 12, fontWeight: 500, color: "#888", fontStyle: "italic" }}>QA Toggle</span>
-          <span style={{ fontSize: 11, fontWeight: 600, color, background: bg, border: `1px solid ${border}`, borderRadius: 4, padding: "1px 6px" }}>
-            {toggleState ? "ON" : "OFF"}
-          </span>
-        </span>
-        <span />
-        <span />
-        {insertBtn}
-      </div>
-    )
-  }
-
   const meta = META_BLOCKS[block.type]
   if (meta) {
     const fields = block.fields || {}
@@ -287,7 +259,8 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, o
         onClick={() => { onSelect(); focusBlockText(index, "input") }}
         data-block-index={index}
       >
-        <div style={{ gridColumn: "1 / -2" }}>
+        <div>{insertBtn}</div>
+        <div style={{ gridColumn: "2 / -1" }}>
           <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", letterSpacing: "0.06em", fontStyle: "italic", marginBottom: 4 }}>
             {meta.label}
           </div>
@@ -318,7 +291,6 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, o
             ))}
           </div>
         </div>
-        {insertBtn}
       </div>
     )
   }
@@ -335,9 +307,29 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, o
       onClick={() => { onSelect(); focusBlockText(index, "textarea") }}
       data-block-index={index}
     >
-      <span style={{ fontFamily: "ui-monospace, Consolas, monospace", fontSize: 12, color: "#888", paddingTop: 2 }}>
-        {msToTimecode(block.start_ms)}
-      </span>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        <span style={{ fontFamily: "ui-monospace, Consolas, monospace", fontSize: 12, color: "#888" }}>
+          {msToTimecode(block.start_ms)}
+        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <button
+            onMouseDown={e => e.preventDefault()}
+            onClick={playFrom}
+            disabled={!audioAvailable}
+            title={audioAvailable ? "Play from here" : "No audio available"}
+            style={{
+              ...iconBtnStyle,
+              border: `1px solid ${audioAvailable ? "#d1fae5" : "#dadada"}`,
+              background: audioAvailable ? "#f0fdf4" : "#f9f9f9",
+              color: audioAvailable ? "#065f46" : "#bbb",
+              cursor: audioAvailable ? "pointer" : "not-allowed",
+            }}
+          >
+            ▶
+          </button>
+          {insertBtn}
+        </div>
+      </div>
 
       <span
         onClick={e => { e.stopPropagation(); onRenameOne(index) }}
@@ -347,7 +339,11 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, o
         {block.speaker}
       </span>
 
-      <span style={{ fontSize: 12, paddingTop: 2, ...(ROLE_STYLE[role] || {}) }}>
+      <span
+        onClick={e => { e.stopPropagation(); onToggleQa(index) }}
+        style={{ fontSize: 12, paddingTop: 2, cursor: "pointer", minHeight: "1em", minWidth: "100%", display: "inline-block", ...(ROLE_STYLE[role] || {}) }}
+        title={block.qa ? "Stop Q/A alternation here (unmarks this and everything after)" : "Start Q/A alternation here (marks this and everything after)"}
+      >
         {role}
       </span>
 
@@ -364,26 +360,6 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, o
           textareaRef={textareaRef}
         />
       </div>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end" }}>
-        <button
-          onMouseDown={e => e.preventDefault()}
-          onClick={playFrom}
-          disabled={!audioAvailable}
-          style={{
-            fontSize: 11, padding: "4px 10px", borderRadius: 3,
-            border: `1px solid ${audioAvailable ? "#d1fae5" : "#dadada"}`,
-            background: audioAvailable ? "#f0fdf4" : "#f9f9f9",
-            color: audioAvailable ? "#065f46" : "#bbb",
-            cursor: audioAvailable ? "pointer" : "not-allowed",
-            whiteSpace: "nowrap"
-          }}
-        >
-          {audioAvailable ? "▶ Play" : "no audio"}
-        </button>
-        {insertBtn}
-      </div>
-
     </div>
   )
 }
@@ -482,14 +458,19 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
       fetch(`${API}/jobs/${jobId}`, { headers })
         .then(r => r.json())
         .then(data => {
-          setBlocks(data.blocks.map(b => {
-            if (!b.type) return { ...b, type: "utterance" }
+          let qaOn = false
+          const migrated = []
+          for (const raw of data.blocks) {
+            let b = !raw.type ? { ...raw, type: "utterance" } : raw
+            if (b.type === "qa_toggle") { qaOn = !qaOn; continue }
             if (META_BLOCKS[b.type] && !b.fields) {
               const { text, ...rest } = b
-              return { ...rest, fields: { [META_BLOCKS[b.type].fields[0]]: text || "" } }
+              b = { ...rest, fields: { [META_BLOCKS[b.type].fields[0]]: text || "" } }
             }
-            return b
-          }))
+            if (b.type === "utterance" && qaOn) b = { ...b, qa: true }
+            migrated.push(b)
+          }
+          setBlocks(migrated)
           setJobFilename(data.filename ? data.filename.replace(/\.[^.]+$/, "") : jobId)
           setLoading(false)
         })
@@ -610,13 +591,23 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     setTimeout(() => focusBlockText(index + 1, "textarea"), 0)
   }
 
+  function toggleQaFrom(index) {
+    const cur = blocksRef.current
+    if (!cur) return
+    const turnOn = !cur[index].qa
+    const updated = cur.map((b, i) => {
+      if (i < index || b.type !== "utterance") return b
+      return { ...b, qa: turnOn }
+    })
+    setBlocks(updated)
+    putBlocks(updated)
+  }
+
   function insertBlock(afterIndex, type) {
     const cur = blocksRef.current
     if (!cur) return
     let newBlock
-    if (type === "qa_toggle") {
-      newBlock = { type: "qa_toggle" }
-    } else if (META_BLOCKS[type]) {
+    if (META_BLOCKS[type]) {
       const emptyFields = Object.fromEntries(META_BLOCKS[type].fields.map(f => [f, ""]))
       newBlock = { type, fields: emptyFields, start_ms: cur[afterIndex]?.end_ms ?? 0, end_ms: cur[afterIndex]?.end_ms ?? 0 }
     } else {
@@ -693,7 +684,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     URL.revokeObjectURL(url)
   }
 
-  const { roles, toggleStates, sectionIndices } = loading ? { roles: [], toggleStates: [], sectionIndices: [] } : computeBlockDisplay(blocks)
+  const { roles, sectionIndices } = loading ? { roles: [], sectionIndices: [] } : computeBlockDisplay(blocks)
 
   if (loading) return (
     <div style={{ fontFamily: "'Public Sans', Arial, sans-serif", maxWidth: "min(1400px, 92vw)", margin: "48px auto", padding: "0 20px" }}>
@@ -789,7 +780,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
 
       <div style={{ background: "white", border: "1px solid #c9c9c9", borderRadius: 4, overflow: "hidden" }}>
         <div style={{
-          display: "grid", gridTemplateColumns: "80px 160px 40px 1fr auto",
+          display: "grid", gridTemplateColumns: "110px 160px 40px 1fr",
           gap: 12, padding: "8px 16px",
           background: "#1a4480", color: "white", fontSize: 11,
           fontWeight: 500, letterSpacing: "0.06em", textTransform: "uppercase"
@@ -798,7 +789,6 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
           <span>Speaker</span>
           <span>Role</span>
           <span>Text</span>
-          <span></span>
         </div>
 
         {blocks.map((block, i) => (
@@ -807,7 +797,6 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
             index={i}
             block={block}
             role={roles[i]}
-            toggleState={toggleStates[i]}
             sectionIndex={sectionIndices[i]}
             onRenameOne={openRenameOne}
             onSplitHere={splitUtterance}
@@ -820,6 +809,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
             onCloseInsertMenu={() => setInsertMenuIndex(null)}
             onInsert={type => insertBlock(i, type)}
             onDelete={() => deleteBlock(i)}
+            onToggleQa={toggleQaFrom}
             isSelected={selectedIndex === i}
             onSelect={() => setSelectedIndex(i)}
             onTextChange={handleTextChange}
