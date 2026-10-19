@@ -10,9 +10,8 @@ const SHORTCUTS = [
   { keys: "Ctrl+[ ]",   desc: "Skip ±4 seconds" },
   { keys: "Ctrl+- +",   desc: "Slow down / speed up" },
   { keys: "↑ ↓",       desc: "Move selection" },
-  { keys: "Ctrl+i",     desc: "Split utterance at cursor" },
+  { keys: "Enter",      desc: "New utterance at cursor" },
   { keys: "F2",         desc: "Select speaker" },
-  { keys: "i",          desc: "Insert utterance below" },
   { keys: "x",          desc: "Delete selected block" },
 ]
 
@@ -183,9 +182,10 @@ function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onF
         onBlur={onTextBlur}
         onFocus={onSelect}
         onKeyDown={e => {
-          if (e.key === "i" && e.ctrlKey) {
+          if (e.key === "Enter") {
             e.preventDefault()
             const cursor = e.target.selectionStart
+            if (cursor >= e.target.value.length) return
             onSplitHere(index, e.target.value.slice(0, cursor), e.target.value.slice(cursor))
           } else if (e.key === "ArrowDown") {
             if (lineCountUpTo(e.target.selectionStart) >= totalLineCount()) {
@@ -418,7 +418,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
         e.preventDefault()
         const idx = selectedIndexRef.current
         const block = blocksRef.current?.[idx]
-        if (block?.type === "utterance") openSpeakerPicker(idx, block.speaker, "rename")
+        if (block?.type === "utterance") openSpeakerPicker(idx, block.speaker)
         return
       }
       if (e.key === "Tab") {
@@ -449,9 +449,6 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
       } else if (e.key === "ArrowDown") {
         e.preventDefault()
         focusAdjacentBlock(selectedIndexRef.current, 1)
-      } else if (e.key === "i") {
-        const idx = selectedIndexRef.current
-        openSpeakerPicker(idx, blocksRef.current?.[idx]?.speaker ?? "", "insert")
       } else if (e.key === "x") {
         deleteBlockRef.current?.(selectedIndexRef.current)
       }
@@ -512,34 +509,26 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     putBlocks(updated)
   }
 
-  function openSpeakerPicker(index, speaker, mode) {
-    setRenameTarget({ index, mode })
+  function openSpeakerPicker(index, speaker) {
+    setRenameTarget({ index })
     setRenameOriginal(speaker)
     setRenameValue(speaker)
     setRenameEditing(false)
   }
 
   function openRenameOne(index) {
-    openSpeakerPicker(index, blocks[index].speaker, "rename")
+    openSpeakerPicker(index, blocks[index].speaker)
   }
 
   function applyRenameOne() {
     const name = renameValue.trim().toUpperCase()
     if (!name) return
-    let updated
-    if (renameTarget.mode === "insert") {
-      const after = renameTarget.index
-      const newBlock = { type: "utterance", speaker: name, text: "", start_ms: blocks[after]?.end_ms ?? 0, end_ms: blocks[after]?.end_ms ?? 0 }
-      updated = [...blocks.slice(0, after + 1), newBlock, ...blocks.slice(after + 1)]
-      setSelectedIndex(after + 1)
-    } else {
-      updated = blocks.map((b, i) => {
-        if (b.type !== "utterance") return b
-        if (renameOriginal && b.speaker === renameOriginal) return { ...b, speaker: name }
-        if (i === renameTarget.index) return { ...b, speaker: name }
-        return b
-      })
-    }
+    const updated = blocks.map((b, i) => {
+      if (b.type !== "utterance") return b
+      if (renameOriginal && b.speaker === renameOriginal) return { ...b, speaker: name }
+      if (i === renameTarget.index) return { ...b, speaker: name }
+      return b
+    })
     setBlocks(updated)
     setRenameTarget(null)
     putBlocks(updated)
@@ -881,7 +870,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
               onKeyDown={handleModalKey}
             >
               <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 16, color: "#111" }}>
-                {renameTarget.mode === "insert" ? "Insert utterance — select speaker" : "Select speaker"}
+                Select speaker
               </div>
               <div style={{ border: "1px solid #c9c9c9", borderRadius: 4, overflow: "hidden", marginBottom: 16 }}>
                 {allSpeakers.map(s => {
