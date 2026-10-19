@@ -14,7 +14,6 @@ const SHORTCUTS = [
   { keys: "F2",         desc: "Select speaker" },
   { keys: "i",          desc: "Insert utterance below" },
   { keys: "x",          desc: "Delete selected block" },
-  { keys: "p",          desc: "Play from selected block" },
 ]
 
 const SPEED_PRESETS = [0.5, 0.75, 1, 1.25, 1.5]
@@ -455,14 +454,6 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
         openSpeakerPicker(idx, blocksRef.current?.[idx]?.speaker ?? "", "insert")
       } else if (e.key === "x") {
         deleteBlockRef.current?.(selectedIndexRef.current)
-      } else if (!audioRef.current) {
-        return
-      } else if (e.key === "p") {
-        const block = blocksRef.current?.[selectedIndexRef.current]
-        if (block?.start_ms != null) {
-          audioRef.current.currentTime = block.start_ms / 1000
-          audioRef.current.play()
-        }
       }
     }
     document.addEventListener("keydown", handleKey)
