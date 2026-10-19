@@ -6,12 +6,12 @@ const API = import.meta.env.VITE_API_URL
 const ABBREVS = /\b(Mr|Mrs|Ms|Dr|Jr|Sr|vs|etc|No|St)\.  /gi
 
 const SHORTCUTS = [
-  { keys: "Space",      desc: "Play / Pause" },
-  { keys: "← →",       desc: "Skip ±4 seconds" },
-  { keys: "[ ]",        desc: "Slow down / speed up" },
+  { keys: "Tab",        desc: "Play / Pause" },
+  { keys: "Ctrl+[ ]",   desc: "Skip ±4 seconds" },
+  { keys: "Ctrl+- +",   desc: "Slow down / speed up" },
   { keys: "↑ ↓",       desc: "Move selection" },
   { keys: "Ctrl+i",     desc: "Split utterance at cursor" },
-  { keys: "s",          desc: "Select speaker" },
+  { keys: "F2",         desc: "Select speaker" },
   { keys: "i",          desc: "Insert utterance below" },
   { keys: "x",          desc: "Delete selected block" },
   { keys: "p",          desc: "Play from selected block" },
@@ -415,6 +415,33 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   useEffect(() => {
     function handleKey(e) {
       if (renameTargetRef.current) return
+      if (e.key === "F2") {
+        e.preventDefault()
+        const idx = selectedIndexRef.current
+        const block = blocksRef.current?.[idx]
+        if (block?.type === "utterance") openSpeakerPicker(idx, block.speaker, "rename")
+        return
+      }
+      if (e.key === "Tab") {
+        e.preventDefault()
+        if (audioRef.current) audioRef.current.paused ? audioRef.current.play() : audioRef.current.pause()
+        return
+      }
+      if (e.ctrlKey && (e.key === "[" || e.key === "]") && audioRef.current) {
+        e.preventDefault()
+        const delta = e.key === "]" ? 4 : -4
+        audioRef.current.currentTime = Math.max(0, Math.min(audioRef.current.duration, audioRef.current.currentTime + delta))
+        return
+      }
+      if (e.ctrlKey && (e.key === "+" || e.key === "=" || e.key === "-")) {
+        e.preventDefault()
+        if (e.key === "-") {
+          setPlaybackRate(r => SPEED_PRESETS[Math.max(0, SPEED_PRESETS.indexOf(r) - 1)])
+        } else {
+          setPlaybackRate(r => SPEED_PRESETS[Math.min(SPEED_PRESETS.length - 1, SPEED_PRESETS.indexOf(r) + 1)])
+        }
+        return
+      }
       const tag = document.activeElement?.tagName
       if (tag === "INPUT" || tag === "TEXTAREA") return
       if (e.key === "ArrowUp") {
@@ -423,19 +450,11 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
       } else if (e.key === "ArrowDown") {
         e.preventDefault()
         focusAdjacentBlock(selectedIndexRef.current, 1)
-      } else if (e.key === "s") {
-        const idx = selectedIndexRef.current
-        const block = blocksRef.current?.[idx]
-        if (block?.type === "utterance") openSpeakerPicker(idx, block.speaker, "rename")
       } else if (e.key === "i") {
         const idx = selectedIndexRef.current
         openSpeakerPicker(idx, blocksRef.current?.[idx]?.speaker ?? "", "insert")
       } else if (e.key === "x") {
         deleteBlockRef.current?.(selectedIndexRef.current)
-      } else if (e.key === "[") {
-        setPlaybackRate(r => SPEED_PRESETS[Math.max(0, SPEED_PRESETS.indexOf(r) - 1)])
-      } else if (e.key === "]") {
-        setPlaybackRate(r => SPEED_PRESETS[Math.min(SPEED_PRESETS.length - 1, SPEED_PRESETS.indexOf(r) + 1)])
       } else if (!audioRef.current) {
         return
       } else if (e.key === "p") {
@@ -444,15 +463,6 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
           audioRef.current.currentTime = block.start_ms / 1000
           audioRef.current.play()
         }
-      } else if (e.key === " ") {
-        e.preventDefault()
-        audioRef.current.paused ? audioRef.current.play() : audioRef.current.pause()
-      } else if (e.key === "ArrowRight") {
-        e.preventDefault()
-        audioRef.current.currentTime = Math.min(audioRef.current.duration, audioRef.current.currentTime + 4)
-      } else if (e.key === "ArrowLeft") {
-        e.preventDefault()
-        audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - 4)
       }
     }
     document.addEventListener("keydown", handleKey)
