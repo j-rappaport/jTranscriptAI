@@ -11,8 +11,9 @@ const SHORTCUTS = [
   { keys: "Ctrl+- +",   desc: "Slow down / speed up" },
   { keys: "↑ ↓",       desc: "Move selection" },
   { keys: "Enter",      desc: "New utterance at cursor" },
+  { keys: "Shift+Enter", desc: "New line within block" },
   { keys: "F2",         desc: "Select speaker" },
-  { keys: "x",          desc: "Delete selected block" },
+  { keys: "Backspace",  desc: "Delete block when empty" },
 ]
 
 const SPEED_PRESETS = [0.5, 0.75, 1, 1.25, 1.5]
@@ -136,7 +137,7 @@ function computeBlockDisplay(blocks) {
   return { roles, sectionIndices }
 }
 
-function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onFocusNext, onFocusPrev, onSelect, textareaRef }) {
+function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onDeleteEmpty, onFocusNext, onFocusPrev, onSelect, textareaRef }) {
   const mirrorRef = useRef(null)
   const measureRef = useRef(null)
 
@@ -182,11 +183,20 @@ function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onF
         onBlur={onTextBlur}
         onFocus={onSelect}
         onKeyDown={e => {
-          if (e.key === "Enter") {
+          if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault()
             const cursor = e.target.selectionStart
             if (cursor >= e.target.value.length) return
             onSplitHere(index, e.target.value.slice(0, cursor), e.target.value.slice(cursor))
+          } else if (e.key === "Backspace" || e.key === "Delete") {
+            const { selectionStart: s, selectionEnd: en } = e.target
+            const nextText = s === en
+              ? (e.key === "Backspace" ? text.slice(0, Math.max(0, s - 1)) + text.slice(s) : text.slice(0, s) + text.slice(s + 1))
+              : text.slice(0, s) + text.slice(en)
+            if (nextText === "") {
+              e.preventDefault()
+              onDeleteEmpty(index)
+            }
           } else if (e.key === "ArrowDown") {
             if (lineCountUpTo(e.target.selectionStart) >= totalLineCount()) {
               e.preventDefault()
@@ -211,7 +221,7 @@ function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onF
   )
 }
 
-function BlockRow({ block, index, role, sectionIndex, isSelected, onSelect, onTextChange, onTextBlur, onRenameOne, onSplitHere, onFocusNext, onFocusPrev, onMetaFieldChange, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete, onToggleQa, textareaRef }) {
+function BlockRow({ block, index, role, sectionIndex, isSelected, onSelect, onTextChange, onTextBlur, onRenameOne, onSplitHere, onDeleteEmpty, onFocusNext, onFocusPrev, onMetaFieldChange, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete, onToggleQa, textareaRef }) {
   const rowBg = isSelected ? "#dcfce7" : (sectionIndex % 2 === 0 ? "white" : "#fafafa")
 
   const rowStyle = {
@@ -366,6 +376,7 @@ function BlockRow({ block, index, role, sectionIndex, isSelected, onSelect, onTe
           onTextChange={value => onTextChange(index, value)}
           onTextBlur={onTextBlur}
           onSplitHere={onSplitHere}
+          onDeleteEmpty={onDeleteEmpty}
           onFocusNext={onFocusNext}
           onFocusPrev={onFocusPrev}
           onSelect={onSelect}
@@ -395,7 +406,6 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   const selectedIndexRef = useRef(0)
   const saveTimerRef = useRef(null)
   const firstUtteranceRef = useRef(null)
-  const deleteBlockRef = useRef(null)
   const modalRef = useRef(null)
   const renameTargetRef = useRef(null)
   useEffect(() => { if (audioRef.current) audioRef.current.playbackRate = playbackRate }, [playbackRate])
@@ -449,8 +459,6 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
       } else if (e.key === "ArrowDown") {
         e.preventDefault()
         focusAdjacentBlock(selectedIndexRef.current, 1)
-      } else if (e.key === "x") {
-        deleteBlockRef.current?.(selectedIndexRef.current)
       }
     }
     document.addEventListener("keydown", handleKey)
@@ -583,6 +591,18 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     putBlocks(updated)
   }
 
+  function deleteBlockMerge(index) {
+    const cur = blocksRef.current
+    if (!cur) return
+    const updated = cur.filter((_, i) => i !== index)
+    setBlocks(updated)
+    putBlocks(updated)
+    setTimeout(() => {
+      if (index > 0) focusAdjacentBlock(index, -1)
+      else if (updated.length) { setSelectedIndex(0); focusBlockText(0, "textarea") }
+    }, 0)
+  }
+
   function splitUtterance(index, beforeText, afterText) {
     const speaker = blocks[index].speaker
     const newBlock = { type: "utterance", speaker, text: afterText, start_ms: blocks[index]?.end_ms ?? 0, end_ms: blocks[index]?.end_ms ?? 0 }
@@ -625,8 +645,6 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     setInsertMenuIndex(null)
     putBlocks(updated)
   }
-
-  deleteBlockRef.current = deleteBlock
 
   function saveTranscript() {
     const { roles } = computeBlockDisplay(blocks)
@@ -803,6 +821,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
             sectionIndex={sectionIndices[i]}
             onRenameOne={openRenameOne}
             onSplitHere={splitUtterance}
+            onDeleteEmpty={deleteBlockMerge}
             onFocusNext={() => focusAdjacentBlock(i, 1)}
             onFocusPrev={() => focusAdjacentBlock(i, -1)}
             audioRef={audioRef}
