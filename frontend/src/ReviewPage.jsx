@@ -571,12 +571,8 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     if (block.type === "utterance") {
       el = document.querySelector(`[data-block-index="${target}"] textarea`)
     } else if (meta) {
-      const fields = block.fields || {}
-      const hasText = meta.fields.some(f => (fields[f] || "").trim() !== "")
-      if (hasText) {
-        const inputs = document.querySelectorAll(`[data-block-index="${target}"] input`)
-        el = direction > 0 ? inputs[0] : inputs[inputs.length - 1]
-      }
+      const inputs = document.querySelectorAll(`[data-block-index="${target}"] input`)
+      el = direction > 0 ? inputs[0] : inputs[inputs.length - 1]
     }
 
     const landed = el && focusElementAt(el, direction > 0 ? 0 : el.value.length)
