@@ -344,18 +344,19 @@ function BlockRow({ block, index, role, sectionIndex, isSelected, onSelect, onTe
         style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3, paddingTop: 3, cursor: "pointer" }}
         title={block.qa ? "Stop Q/A alternation here (unmarks this and everything after)" : "Start Q/A alternation here (marks this and everything after)"}
       >
-        <div style={{
-          width: 22, height: 12, borderRadius: 7, flexShrink: 0,
-          background: block.qa ? "#16a34a" : "#e5e5e5",
-          border: `1px solid ${block.qa ? "#16a34a" : "#c0c0c0"}`,
-          position: "relative",
-        }}>
+        {!block.qa && (
           <div style={{
-            position: "absolute", top: 1, left: block.qa ? 11 : 1,
-            width: 9, height: 9, borderRadius: "50%", background: "white",
-            boxShadow: "0 1px 2px rgba(0,0,0,0.3)",
-          }} />
-        </div>
+            width: 22, height: 12, borderRadius: 7, flexShrink: 0,
+            background: "#e5e5e5", border: "1px solid #c0c0c0",
+            position: "relative",
+          }}>
+            <div style={{
+              position: "absolute", top: 1, left: 1,
+              width: 9, height: 9, borderRadius: "50%", background: "white",
+              boxShadow: "0 1px 2px rgba(0,0,0,0.3)",
+            }} />
+          </div>
+        )}
         <span style={{ fontSize: 12, lineHeight: 1, ...(ROLE_STYLE[role] || {}) }}>{role}</span>
       </div>
 
@@ -799,7 +800,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
         }}>
           <span>Time</span>
           <span>Speaker</span>
-          <span>Role</span>
+          <span>Q/A</span>
           <span>Text</span>
         </div>
 
