@@ -73,6 +73,17 @@ function msToTimecode(ms) {
   return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`
 }
 
+function focusElementAt(el, pos) {
+  if (!el) return false
+  el.focus()
+  el.setSelectionRange(pos, pos)
+  return true
+}
+
+function focusBlockText(index, selector) {
+  focusElementAt(document.querySelector(`[data-block-index="${index}"] ${selector}`), 0)
+}
+
 function InsertMenu({ onInsert, onDelete, onClose }) {
   const itemStyle = { display: "block", width: "100%", textAlign: "left", padding: "7px 14px", fontSize: 12, background: "none", border: "none", cursor: "pointer" }
   return (
@@ -133,7 +144,7 @@ function computeBlockDisplay(blocks) {
   return { roles, toggleStates, sectionIndices }
 }
 
-function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onFocusNext, onFocusPrev, onFocusSelf, textareaRef }) {
+function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onFocusNext, onFocusPrev, onSelect, textareaRef }) {
   const mirrorRef = useRef(null)
   const measureRef = useRef(null)
 
@@ -177,7 +188,7 @@ function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onF
         value={text}
         onChange={e => onTextChange(e.target.value)}
         onBlur={onTextBlur}
-        onFocus={onFocusSelf}
+        onFocus={onSelect}
         onKeyDown={e => {
           if (e.key === "i" && e.ctrlKey) {
             e.preventDefault()
@@ -208,7 +219,6 @@ function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onF
 }
 
 function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, onSelect, onTextChange, onTextBlur, onRenameOne, onSplitHere, onFocusNext, onFocusPrev, onMetaFieldChange, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete, textareaRef }) {
-  const isInQA = block.type === "qa_toggle" ? toggleState : !!role
   const rowBg = isSelected ? "#dcfce7" : (sectionIndex % 2 === 0 ? "white" : "#fafafa")
 
   const rowStyle = {
@@ -274,11 +284,7 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, o
     return (
       <div
         style={rowStyle}
-        onClick={() => {
-          onSelect()
-          const el = document.querySelector(`[data-block-index="${index}"] input`)
-          if (el) { el.focus(); el.setSelectionRange(0, 0) }
-        }}
+        onClick={() => { onSelect(); focusBlockText(index, "input") }}
         data-block-index={index}
       >
         <div style={{ gridColumn: "1 / -2" }}>
@@ -326,11 +332,7 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, o
   return (
     <div
       style={rowStyle}
-      onClick={() => {
-        onSelect()
-        const el = document.querySelector(`[data-block-index="${index}"] textarea`)
-        if (el) { el.focus(); el.setSelectionRange(0, 0) }
-      }}
+      onClick={() => { onSelect(); focusBlockText(index, "textarea") }}
       data-block-index={index}
     >
       <span style={{ fontFamily: "ui-monospace, Consolas, monospace", fontSize: 12, color: "#888", paddingTop: 2 }}>
@@ -358,7 +360,7 @@ function BlockRow({ block, index, role, toggleState, sectionIndex, isSelected, o
           onSplitHere={onSplitHere}
           onFocusNext={onFocusNext}
           onFocusPrev={onFocusPrev}
-          onFocusSelf={onSelect}
+          onSelect={onSelect}
           textareaRef={textareaRef}
         />
       </div>
@@ -435,19 +437,10 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
       } else if (e.key === "s") {
         const idx = selectedIndexRef.current
         const block = blocksRef.current?.[idx]
-        if (block?.type === "utterance") {
-          setRenameTarget({ index: idx, mode: "rename" })
-          setRenameOriginal(block.speaker)
-          setRenameValue(block.speaker)
-          setRenameEditing(false)
-        }
+        if (block?.type === "utterance") openSpeakerPicker(idx, block.speaker, "rename")
       } else if (e.key === "i") {
         const idx = selectedIndexRef.current
-        const speaker = blocksRef.current?.[idx]?.speaker ?? ""
-        setRenameTarget({ index: idx, mode: "insert" })
-        setRenameOriginal(speaker)
-        setRenameValue(speaker)
-        setRenameEditing(false)
+        openSpeakerPicker(idx, blocksRef.current?.[idx]?.speaker ?? "", "insert")
       } else if (e.key === "x") {
         deleteBlockRef.current?.(selectedIndexRef.current)
       } else if (e.key === "[") {
@@ -507,11 +500,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     load()
   }, [jobId])
 
-  async function updateMetaField(index, fieldName, value) {
-    const updated = blocks.map((b, i) =>
-      i === index ? { ...b, fields: { ...(b.fields || {}), [fieldName]: value } } : b
-    )
-    setBlocks(updated)
+  async function putBlocks(updated) {
     const headers = await authHeaders()
     fetch(`${API}/jobs/${jobId}/blocks`, {
       method: "PUT",
@@ -520,22 +509,26 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     })
   }
 
-  function openRenameOne(index) {
-    setRenameTarget({ index, mode: "rename" })
-    setRenameOriginal(blocks[index].speaker)
-    setRenameValue(blocks[index].speaker)
-    setRenameEditing(false)
+  function updateMetaField(index, fieldName, value) {
+    const updated = blocks.map((b, i) =>
+      i === index ? { ...b, fields: { ...(b.fields || {}), [fieldName]: value } } : b
+    )
+    setBlocks(updated)
+    putBlocks(updated)
   }
 
-  function openInsert(index) {
-    const speaker = blocks[index]?.speaker ?? ""
-    setRenameTarget({ index, mode: "insert" })
+  function openSpeakerPicker(index, speaker, mode) {
+    setRenameTarget({ index, mode })
     setRenameOriginal(speaker)
     setRenameValue(speaker)
     setRenameEditing(false)
   }
 
-  async function applyRenameOne() {
+  function openRenameOne(index) {
+    openSpeakerPicker(index, blocks[index].speaker, "rename")
+  }
+
+  function applyRenameOne() {
     const name = renameValue.trim().toUpperCase()
     if (!name) return
     let updated
@@ -554,24 +547,13 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     }
     setBlocks(updated)
     setRenameTarget(null)
-    const headers = await authHeaders()
-    fetch(`${API}/jobs/${jobId}/blocks`, {
-      method: "PUT",
-      headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify({ blocks: updated }),
-    })
+    putBlocks(updated)
   }
 
-  async function saveBlocksNow() {
+  function saveBlocksNow() {
     if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null }
-    const current = blocksRef.current
-    if (!current) return
-    const headers = await authHeaders()
-    fetch(`${API}/jobs/${jobId}/blocks`, {
-      method: "PUT",
-      headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify({ blocks: current }),
-    })
+    if (!blocksRef.current) return
+    putBlocks(blocksRef.current)
   }
 
   function scheduleSave() {
@@ -605,47 +587,30 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
       }
     }
 
-    if (el) {
-      el.focus()
-      const pos = direction > 0 ? 0 : el.value.length
-      el.setSelectionRange(pos, pos)
-    } else {
-      document.activeElement?.blur()
-    }
+    const landed = el && focusElementAt(el, direction > 0 ? 0 : el.value.length)
+    if (!landed) document.activeElement?.blur()
   }
 
-  async function deleteBlock(index) {
+  function deleteBlock(index) {
     const cur = blocksRef.current
     if (!cur) return
     const updated = cur.filter((_, i) => i !== index)
     setBlocks(updated)
-    const headers = await authHeaders()
-    fetch(`${API}/jobs/${jobId}/blocks`, {
-      method: "PUT",
-      headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify({ blocks: updated }),
-    })
+    putBlocks(updated)
   }
 
-  async function splitUtterance(index, beforeText, afterText) {
+  function splitUtterance(index, beforeText, afterText) {
     const speaker = blocks[index].speaker
     const newBlock = { type: "utterance", speaker, text: afterText, start_ms: blocks[index]?.end_ms ?? 0, end_ms: blocks[index]?.end_ms ?? 0 }
     const updated = blocks.map((b, i) => i === index ? { ...b, text: beforeText } : b)
     const withNew = [...updated.slice(0, index + 1), newBlock, ...updated.slice(index + 1)]
     setBlocks(withNew)
     setSelectedIndex(index + 1)
-    const headers = await authHeaders()
-    fetch(`${API}/jobs/${jobId}/blocks`, {
-      method: "PUT",
-      headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify({ blocks: withNew }),
-    })
-    setTimeout(() => {
-      document.querySelector(`[data-block-index="${index + 1}"] textarea`)?.focus()
-    }, 0)
+    putBlocks(withNew)
+    setTimeout(() => focusBlockText(index + 1, "textarea"), 0)
   }
 
-  async function insertBlock(afterIndex, type) {
+  function insertBlock(afterIndex, type) {
     const cur = blocksRef.current
     if (!cur) return
     let newBlock
@@ -664,12 +629,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     ]
     setBlocks(updated)
     setInsertMenuIndex(null)
-    const headers = await authHeaders()
-    fetch(`${API}/jobs/${jobId}/blocks`, {
-      method: "PUT",
-      headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify({ blocks: updated }),
-    })
+    putBlocks(updated)
   }
 
   deleteBlockRef.current = deleteBlock
@@ -740,6 +700,8 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
       <p style={{ color: "#888" }}>Loading transcript…</p>
     </div>
   )
+
+  const firstUtteranceIndex = blocks.findIndex(b => b.type === "utterance")
 
   return (
     <div style={{ fontFamily: "'Public Sans', Arial, sans-serif" }}>
@@ -839,36 +801,33 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
           <span></span>
         </div>
 
-        {(() => {
-          const firstUtteranceIndex = blocks.findIndex(b => b.type === "utterance")
-          return blocks.map((block, i) => (
-            <BlockRow
-              key={i}
-              index={i}
-              block={block}
-              role={roles[i]}
-              toggleState={toggleStates[i]}
-              sectionIndex={sectionIndices[i]}
-              onRenameOne={openRenameOne}
-              onSplitHere={splitUtterance}
-              onFocusNext={() => focusAdjacentBlock(i, 1)}
-              onFocusPrev={() => focusAdjacentBlock(i, -1)}
-              audioRef={audioRef}
-              audioAvailable={audioAvailable}
-              insertMenuOpen={insertMenuIndex === i}
-              onOpenInsertMenu={() => setInsertMenuIndex(i)}
-              onCloseInsertMenu={() => setInsertMenuIndex(null)}
-              onInsert={type => insertBlock(i, type)}
-              onDelete={() => deleteBlock(i)}
-              isSelected={selectedIndex === i}
-              onSelect={() => setSelectedIndex(i)}
-              onTextChange={handleTextChange}
-              onTextBlur={saveBlocksNow}
-              onMetaFieldChange={(field, value) => updateMetaField(i, field, value)}
-              textareaRef={i === firstUtteranceIndex ? firstUtteranceRef : null}
-            />
-          ))
-        })()}
+        {blocks.map((block, i) => (
+          <BlockRow
+            key={i}
+            index={i}
+            block={block}
+            role={roles[i]}
+            toggleState={toggleStates[i]}
+            sectionIndex={sectionIndices[i]}
+            onRenameOne={openRenameOne}
+            onSplitHere={splitUtterance}
+            onFocusNext={() => focusAdjacentBlock(i, 1)}
+            onFocusPrev={() => focusAdjacentBlock(i, -1)}
+            audioRef={audioRef}
+            audioAvailable={audioAvailable}
+            insertMenuOpen={insertMenuIndex === i}
+            onOpenInsertMenu={() => setInsertMenuIndex(i)}
+            onCloseInsertMenu={() => setInsertMenuIndex(null)}
+            onInsert={type => insertBlock(i, type)}
+            onDelete={() => deleteBlock(i)}
+            isSelected={selectedIndex === i}
+            onSelect={() => setSelectedIndex(i)}
+            onTextChange={handleTextChange}
+            onTextBlur={saveBlocksNow}
+            onMetaFieldChange={(field, value) => updateMetaField(i, field, value)}
+            textareaRef={i === firstUtteranceIndex ? firstUtteranceRef : null}
+          />
+        ))}
       </div>
 
       {renameTarget && (() => {
