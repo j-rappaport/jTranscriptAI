@@ -83,7 +83,7 @@ function focusBlockText(index, selector) {
   focusElementAt(document.querySelector(`[data-block-index="${index}"] ${selector}`), 0)
 }
 
-function InsertMenu({ onInsert, onDelete, onClose }) {
+function InsertMenu({ onInsert, onDelete, onClose, onToggleQa, qaToggleLabel }) {
   const itemStyle = { display: "block", width: "100%", textAlign: "left", padding: "7px 14px", fontSize: 12, background: "none", border: "none", cursor: "pointer" }
   return (
     <>
@@ -93,6 +93,16 @@ function InsertMenu({ onInsert, onDelete, onClose }) {
         background: "white", border: "1px solid #b0b0b0", borderRadius: 4,
         boxShadow: "0 4px 12px rgba(0,0,0,0.08)", padding: "4px 0", minWidth: 160
       }}>
+        {onToggleQa && (
+          <>
+            <button onMouseDown={e => e.preventDefault()} onClick={onToggleQa} style={{ ...itemStyle, color: "#222" }}
+              onMouseEnter={e => e.target.style.background = "#f5f5f5"}
+              onMouseLeave={e => e.target.style.background = "none"}>
+              {qaToggleLabel}
+            </button>
+            <div style={{ borderTop: "1px solid #f0f0f0", margin: "4px 0" }} />
+          </>
+        )}
         {Object.entries(META_BLOCKS).map(([type, meta]) => (
           <button key={type} onMouseDown={e => e.preventDefault()} onClick={() => onInsert(type)} style={{ ...itemStyle, color: "#222" }}
             onMouseEnter={e => e.target.style.background = "#f5f5f5"}
@@ -245,19 +255,29 @@ function BlockRow({ block, index, role, sectionIndex, isSelected, onSelect, onTe
     display: "flex", alignItems: "center", justifyContent: "center", padding: 0
   }
 
-  const insertBtn = (
-    <div style={{ position: "relative" }}>
-      <button
-        onMouseDown={e => e.preventDefault()}
-        onClick={e => { e.stopPropagation(); insertMenuOpen ? onCloseInsertMenu() : onOpenInsertMenu() }}
-        title="Insert below"
-        style={{ ...iconBtnStyle, border: "1px solid #e0e0e0", background: "white", color: "#bbb" }}
-      >
-        ☰
-      </button>
-      {insertMenuOpen && <InsertMenu onInsert={onInsert} onDelete={() => { onDelete(); onCloseInsertMenu() }} onClose={onCloseInsertMenu} />}
-    </div>
-  )
+  function renderInsertBtn(includeQaToggle) {
+    return (
+      <div style={{ position: "relative" }}>
+        <button
+          onMouseDown={e => e.preventDefault()}
+          onClick={e => { e.stopPropagation(); insertMenuOpen ? onCloseInsertMenu() : onOpenInsertMenu() }}
+          title="Insert below"
+          style={{ ...iconBtnStyle, border: "1px solid #e0e0e0", background: "white", color: "#bbb" }}
+        >
+          ☰
+        </button>
+        {insertMenuOpen && (
+          <InsertMenu
+            onInsert={onInsert}
+            onDelete={() => { onDelete(); onCloseInsertMenu() }}
+            onClose={onCloseInsertMenu}
+            onToggleQa={includeQaToggle ? () => { onToggleQa(index); onCloseInsertMenu() } : null}
+            qaToggleLabel="Toggle Q/A"
+          />
+        )}
+      </div>
+    )
+  }
 
   const meta = META_BLOCKS[block.type]
   if (meta) {
@@ -268,7 +288,7 @@ function BlockRow({ block, index, role, sectionIndex, isSelected, onSelect, onTe
         onClick={() => { onSelect(); focusBlockText(index, "input") }}
         data-block-index={index}
       >
-        <div>{insertBtn}</div>
+        <div>{renderInsertBtn(false)}</div>
         <div style={{ gridColumn: "2 / -1" }}>
           <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", letterSpacing: "0.06em", fontStyle: "italic", marginBottom: 4 }}>
             {meta.label}
@@ -336,7 +356,7 @@ function BlockRow({ block, index, role, sectionIndex, isSelected, onSelect, onTe
           >
             ▶
           </button>
-          {insertBtn}
+          {renderInsertBtn(true)}
         </div>
       </div>
 
@@ -348,26 +368,9 @@ function BlockRow({ block, index, role, sectionIndex, isSelected, onSelect, onTe
         {block.speaker}
       </span>
 
-      <div
-        onClick={e => { e.stopPropagation(); onToggleQa(index) }}
-        style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3, paddingTop: 3, cursor: "pointer" }}
-        title={block.qa ? "Stop Q/A alternation here (unmarks this and everything after)" : "Start Q/A alternation here (marks this and everything after)"}
-      >
-        {!block.qa && (
-          <div style={{
-            width: 22, height: 12, borderRadius: 7, flexShrink: 0,
-            background: "#e5e5e5", border: "1px solid #c0c0c0",
-            position: "relative",
-          }}>
-            <div style={{
-              position: "absolute", top: 1, left: 1,
-              width: 9, height: 9, borderRadius: "50%", background: "white",
-              boxShadow: "0 1px 2px rgba(0,0,0,0.3)",
-            }} />
-          </div>
-        )}
-        <span style={{ fontSize: 12, lineHeight: 1, ...(ROLE_STYLE[role] || {}) }}>{role}</span>
-      </div>
+      <span style={{ fontSize: 12, paddingTop: 3, ...(ROLE_STYLE[role] || {}) }}>
+        {role}
+      </span>
 
       <div style={{ minHeight: 28 }} onClick={e => e.stopPropagation()}>
         <UtteranceText
