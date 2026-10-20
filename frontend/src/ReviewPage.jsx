@@ -7,6 +7,7 @@ const ABBREVS = /\b(Mr|Mrs|Ms|Dr|Jr|Sr|vs|etc|No|St)\.  /gi
 
 const SHORTCUTS = [
   { keys: "Tab",        desc: "Play / Pause" },
+  { keys: "Scroll Lock (hold)", desc: "Play while held, rewind 4s on release" },
   { keys: "Ctrl+[ ]",   desc: "Skip ±4 seconds" },
   { keys: "Ctrl+- +",   desc: "Slow down / speed up" },
   { keys: "↑ ↓",       desc: "Move selection" },
@@ -425,7 +426,19 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   }, [loading])
 
   useEffect(() => {
+    function handleKeyUp(e) {
+      if (e.key === "ScrollLock" && audioRef.current) {
+        e.preventDefault()
+        audioRef.current.pause()
+        audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - 4)
+      }
+    }
     function handleKey(e) {
+      if (e.key === "ScrollLock" && audioRef.current) {
+        e.preventDefault()
+        if (!e.repeat) audioRef.current.play()
+        return
+      }
       if (renameTargetRef.current) return
       if (e.key === "F2") {
         e.preventDefault()
@@ -465,7 +478,11 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
       }
     }
     document.addEventListener("keydown", handleKey)
-    return () => document.removeEventListener("keydown", handleKey)
+    document.addEventListener("keyup", handleKeyUp)
+    return () => {
+      document.removeEventListener("keydown", handleKey)
+      document.removeEventListener("keyup", handleKeyUp)
+    }
   }, [])
 
   useEffect(() => {
