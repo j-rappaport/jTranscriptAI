@@ -673,7 +673,7 @@ def run_transcription(job_id: str, audio_path: str, storage_key: str, user_id: s
 
         config = aai.TranscriptionConfig(
             speaker_labels=True,
-            speech_models=["universal-3-pro", "universal-2"],
+            speech_models=["universal-3-5-pro", "universal-3-pro", "universal-2"],
             word_boost=boost_words if boost_words else None,
             # prompt=(
             #     "Always: Transcribe speech exactly as heard. If uncertain or audio is unclear, mark as (indiscernible). "
