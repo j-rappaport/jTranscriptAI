@@ -14,7 +14,7 @@ const SHORTCUTS = [
   { keys: "Enter",      desc: "New utterance at cursor" },
   { keys: "Shift+Enter", desc: "New line within block" },
   { keys: "F2",         desc: "Select speaker" },
-  { keys: "Backspace",  desc: "Delete block when empty" },
+  { keys: "Backspace",  desc: "At start: merge into previous block; when empty: delete block" },
 ]
 
 const SPEED_PRESETS = [0.5, 0.75, 1, 1.25, 1.5]
@@ -148,7 +148,7 @@ function computeBlockDisplay(blocks) {
   return { roles, sectionIndices }
 }
 
-function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onDeleteEmpty, onFocusNext, onFocusPrev, onSelect, textareaRef }) {
+function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onMergeIntoPrevious, onFocusNext, onFocusPrev, onSelect, textareaRef }) {
   const mirrorRef = useRef(null)
   const measureRef = useRef(null)
 
@@ -201,12 +201,13 @@ function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onD
             onSplitHere(index, e.target.value.slice(0, cursor), e.target.value.slice(cursor))
           } else if (e.key === "Backspace" || e.key === "Delete") {
             const { selectionStart: s, selectionEnd: en } = e.target
+            const atStart = e.key === "Backspace" && s === en && s === 0
             const nextText = s === en
               ? (e.key === "Backspace" ? text.slice(0, Math.max(0, s - 1)) + text.slice(s) : text.slice(0, s) + text.slice(s + 1))
               : text.slice(0, s) + text.slice(en)
-            if (nextText === "") {
+            if (atStart || nextText === "") {
               e.preventDefault()
-              onDeleteEmpty(index)
+              onMergeIntoPrevious(index, atStart ? text : nextText)
             }
           } else if (e.key === "ArrowDown") {
             if (lineCountUpTo(e.target.selectionStart) >= totalLineCount()) {
@@ -232,7 +233,7 @@ function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onD
   )
 }
 
-function BlockRow({ block, index, role, sectionIndex, isSelected, onSelect, onTextChange, onTextBlur, onRenameOne, onSplitHere, onDeleteEmpty, onFocusNext, onFocusPrev, onMetaFieldChange, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete, onToggleQa, textareaRef }) {
+function BlockRow({ block, index, role, sectionIndex, isSelected, onSelect, onTextChange, onTextBlur, onRenameOne, onSplitHere, onMergeIntoPrevious, onFocusNext, onFocusPrev, onMetaFieldChange, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete, onToggleQa, textareaRef }) {
   const rowBg = isSelected ? "#dcfce7" : (sectionIndex % 2 === 0 ? "white" : "#fafafa")
 
   const rowStyle = {
@@ -380,7 +381,7 @@ function BlockRow({ block, index, role, sectionIndex, isSelected, onSelect, onTe
           onTextChange={value => onTextChange(index, value)}
           onTextBlur={onTextBlur}
           onSplitHere={onSplitHere}
-          onDeleteEmpty={onDeleteEmpty}
+          onMergeIntoPrevious={onMergeIntoPrevious}
           onFocusNext={onFocusNext}
           onFocusPrev={onFocusPrev}
           onSelect={onSelect}
@@ -619,6 +620,26 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     }, 0)
   }
 
+  function mergeIntoPrevious(index, currentText) {
+    const cur = blocksRef.current
+    if (!cur) return
+    const prev = index > 0 ? cur[index - 1] : null
+    if (!prev || prev.type !== "utterance") {
+      if (currentText === "") deleteBlockMerge(index)
+      return
+    }
+    const joinPos = prev.text.length
+    const updated = cur
+      .map((b, i) => i === index - 1 ? { ...b, text: b.text + currentText } : b)
+      .filter((_, i) => i !== index)
+    setBlocks(updated)
+    putBlocks(updated)
+    setTimeout(() => {
+      setSelectedIndex(index - 1)
+      focusElementAt(document.querySelector(`[data-block-index="${index - 1}"] textarea`), joinPos)
+    }, 0)
+  }
+
   function splitUtterance(index, beforeText, afterText) {
     const speaker = blocks[index].speaker
     const newBlock = { type: "utterance", speaker, text: afterText, start_ms: blocks[index]?.end_ms ?? 0, end_ms: blocks[index]?.end_ms ?? 0 }
@@ -837,7 +858,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
             sectionIndex={sectionIndices[i]}
             onRenameOne={openRenameOne}
             onSplitHere={splitUtterance}
-            onDeleteEmpty={deleteBlockMerge}
+            onMergeIntoPrevious={mergeIntoPrevious}
             onFocusNext={() => focusAdjacentBlock(i, 1)}
             onFocusPrev={() => focusAdjacentBlock(i, -1)}
             audioRef={audioRef}
