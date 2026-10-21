@@ -15,6 +15,8 @@ const SHORTCUTS = [
   { keys: "Shift+Enter", desc: "New line within block" },
   { keys: "F2",         desc: "Select speaker" },
   { keys: "Backspace",  desc: "At start: merge into previous block; when empty: delete block" },
+  { keys: "Ctrl+Z",     desc: "Undo" },
+  { keys: "Ctrl+Y",     desc: "Redo" },
 ]
 
 const SPEED_PRESETS = [0.5, 0.75, 1, 1.25, 1.5]
@@ -412,6 +414,9 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   const firstUtteranceRef = useRef(null)
   const modalRef = useRef(null)
   const renameTargetRef = useRef(null)
+  const historyRef = useRef({ past: [], future: [] })
+  const burstRef = useRef(null)
+  const burstTimerRef = useRef(null)
   useEffect(() => { if (audioRef.current) audioRef.current.playbackRate = playbackRate }, [playbackRate])
   useEffect(() => { blocksRef.current = blocks }, [blocks])
   useEffect(() => { renameTargetRef.current = renameTarget }, [renameTarget])
@@ -450,6 +455,16 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
       if (e.key === "Tab") {
         e.preventDefault()
         if (audioRef.current) audioRef.current.paused ? audioRef.current.play() : audioRef.current.pause()
+        return
+      }
+      if (e.ctrlKey && (e.key === "z" || e.key === "Z")) {
+        e.preventDefault()
+        undo()
+        return
+      }
+      if (e.ctrlKey && (e.key === "y" || e.key === "Y")) {
+        e.preventDefault()
+        redo()
         return
       }
       if (e.ctrlKey && (e.key === "[" || e.key === "]") && audioRef.current) {
@@ -529,7 +544,60 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     })
   }
 
+  const HISTORY_LIMIT = 50
+
+  function pushPast(snapshot) {
+    const h = historyRef.current
+    h.past.push(snapshot)
+    if (h.past.length > HISTORY_LIMIT) h.past.shift()
+    h.future = []
+  }
+
+  function flushBurst() {
+    if (burstTimerRef.current) { clearTimeout(burstTimerRef.current); burstTimerRef.current = null }
+    if (burstRef.current) {
+      pushPast(burstRef.current)
+      burstRef.current = null
+    }
+  }
+
+  // Call before every blocks-mutating action. burst=true coalesces a run of
+  // continuous edits (typing) into a single undo step instead of one per keystroke.
+  function recordHistory(burst) {
+    const before = blocksRef.current
+    if (burst) {
+      if (!burstRef.current) burstRef.current = before
+      if (burstTimerRef.current) clearTimeout(burstTimerRef.current)
+      burstTimerRef.current = setTimeout(flushBurst, 1000)
+    } else {
+      flushBurst()
+      pushPast(before)
+    }
+  }
+
+  function undo() {
+    flushBurst()
+    const h = historyRef.current
+    if (h.past.length === 0) return
+    const prev = h.past.pop()
+    h.future.push(blocksRef.current)
+    if (h.future.length > HISTORY_LIMIT) h.future.shift()
+    setBlocks(prev)
+    putBlocks(prev)
+  }
+
+  function redo() {
+    const h = historyRef.current
+    if (h.future.length === 0) return
+    const next = h.future.pop()
+    h.past.push(blocksRef.current)
+    if (h.past.length > HISTORY_LIMIT) h.past.shift()
+    setBlocks(next)
+    putBlocks(next)
+  }
+
   function updateMetaField(index, fieldName, value) {
+    recordHistory(true)
     const updated = blocks.map((b, i) =>
       i === index ? { ...b, fields: { ...(b.fields || {}), [fieldName]: value } } : b
     )
@@ -551,6 +619,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   function applyRenameOne() {
     const name = renameValue.trim().toUpperCase()
     if (!name) return
+    recordHistory(false)
     const updated = blocks.map((b, i) => {
       if (b.type !== "utterance") return b
       if (renameOriginal && b.speaker === renameOriginal) return { ...b, speaker: name }
@@ -574,6 +643,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   }
 
   function handleTextChange(index, value) {
+    recordHistory(true)
     setBlocks(prev => prev.map((b, i) => i === index ? { ...b, text: value } : b))
     scheduleSave()
   }
@@ -602,6 +672,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   function deleteBlock(index) {
     const cur = blocksRef.current
     if (!cur) return
+    recordHistory(false)
     const updated = cur.filter((_, i) => i !== index)
     setBlocks(updated)
     putBlocks(updated)
@@ -610,6 +681,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   function deleteBlockMerge(index) {
     const cur = blocksRef.current
     if (!cur) return
+    recordHistory(false)
     const updated = cur.filter((_, i) => i !== index)
     setBlocks(updated)
     putBlocks(updated)
@@ -627,6 +699,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
       if (currentText === "") deleteBlockMerge(index)
       return
     }
+    recordHistory(false)
     const joinPos = prev.text.length
     const updated = cur
       .map((b, i) => i === index - 1 ? { ...b, text: b.text + currentText } : b)
@@ -649,6 +722,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   }
 
   function splitUtterance(index, beforeText, afterText) {
+    recordHistory(false)
     const speaker = guessOtherSpeaker(blocks, index)
     const newBlock = { type: "utterance", speaker, text: afterText, qa: blocks[index]?.qa, start_ms: blocks[index]?.end_ms ?? 0, end_ms: blocks[index]?.end_ms ?? 0 }
     const updated = blocks.map((b, i) => i === index ? { ...b, text: beforeText } : b)
@@ -662,6 +736,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   function toggleQaFrom(index) {
     const cur = blocksRef.current
     if (!cur) return
+    recordHistory(false)
     const turnOn = !cur[index].qa
     const updated = cur.map((b, i) => {
       if (i < index || b.type !== "utterance") return b
@@ -674,6 +749,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   function insertBlock(afterIndex, type) {
     const cur = blocksRef.current
     if (!cur) return
+    recordHistory(false)
     let newBlock
     if (META_BLOCKS[type]) {
       const emptyFields = Object.fromEntries(META_BLOCKS[type].fields.map(f => [f, ""]))
