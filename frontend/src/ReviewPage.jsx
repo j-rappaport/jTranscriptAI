@@ -197,7 +197,6 @@ function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onM
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault()
             const cursor = e.target.selectionStart
-            if (cursor >= e.target.value.length) return
             onSplitHere(index, e.target.value.slice(0, cursor), e.target.value.slice(cursor))
           } else if (e.key === "Backspace" || e.key === "Delete") {
             const { selectionStart: s, selectionEnd: en } = e.target
@@ -651,7 +650,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
 
   function splitUtterance(index, beforeText, afterText) {
     const speaker = guessOtherSpeaker(blocks, index)
-    const newBlock = { type: "utterance", speaker, text: afterText, start_ms: blocks[index]?.end_ms ?? 0, end_ms: blocks[index]?.end_ms ?? 0 }
+    const newBlock = { type: "utterance", speaker, text: afterText, qa: blocks[index]?.qa, start_ms: blocks[index]?.end_ms ?? 0, end_ms: blocks[index]?.end_ms ?? 0 }
     const updated = blocks.map((b, i) => i === index ? { ...b, text: beforeText } : b)
     const withNew = [...updated.slice(0, index + 1), newBlock, ...updated.slice(index + 1)]
     setBlocks(withNew)
