@@ -640,8 +640,17 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     }, 0)
   }
 
+  function guessOtherSpeaker(allBlocks, index) {
+    const current = allBlocks[index]?.speaker
+    for (let i = index - 1; i >= 0; i--) {
+      const b = allBlocks[i]
+      if (b.type === "utterance" && b.speaker !== current) return b.speaker
+    }
+    return "UNKNOWN SPEAKER"
+  }
+
   function splitUtterance(index, beforeText, afterText) {
-    const speaker = blocks[index].speaker
+    const speaker = guessOtherSpeaker(blocks, index)
     const newBlock = { type: "utterance", speaker, text: afterText, start_ms: blocks[index]?.end_ms ?? 0, end_ms: blocks[index]?.end_ms ?? 0 }
     const updated = blocks.map((b, i) => i === index ? { ...b, text: beforeText } : b)
     const withNew = [...updated.slice(0, index + 1), newBlock, ...updated.slice(index + 1)]
