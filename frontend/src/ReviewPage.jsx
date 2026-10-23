@@ -75,6 +75,15 @@ function msToTimecode(ms) {
   return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`
 }
 
+// segmentMap entries carry a "floating" local_start_ms (see main.py's read_tloc_local_ms):
+// the literal recorded wall-clock digits reinterpreted as UTC, so UTC getters here
+// reproduce those same digits regardless of the viewer's own timezone.
+function msToRealClock(ms, segmentMap) {
+  const seg = segmentMap.find(s => ms < s.end_ms) || segmentMap[segmentMap.length - 1]
+  const d = new Date(seg.local_start_ms + (ms - seg.start_ms))
+  return `${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")}:${String(d.getUTCSeconds()).padStart(2,"0")}`
+}
+
 function focusElementAt(el, pos) {
   if (!el) return false
   el.focus()
@@ -234,7 +243,7 @@ function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onM
   )
 }
 
-function BlockRow({ block, index, role, sectionIndex, isSelected, onSelect, onTextChange, onTextBlur, onRenameOne, onSplitHere, onMergeIntoPrevious, onFocusNext, onFocusPrev, onMetaFieldChange, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete, onToggleQa, textareaRef }) {
+function BlockRow({ block, index, role, sectionIndex, isSelected, onSelect, onTextChange, onTextBlur, onRenameOne, onSplitHere, onMergeIntoPrevious, onFocusNext, onFocusPrev, onMetaFieldChange, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete, onToggleQa, segmentMap, textareaRef }) {
   const rowBg = isSelected ? "#dcfce7" : (sectionIndex % 2 === 0 ? "white" : "#fafafa")
 
   const rowStyle = {
@@ -341,7 +350,7 @@ function BlockRow({ block, index, role, sectionIndex, isSelected, onSelect, onTe
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         <span style={{ fontFamily: "ui-monospace, Consolas, monospace", fontSize: 12, color: "#888" }}>
-          {msToTimecode(block.start_ms)}
+          {segmentMap ? msToRealClock(block.start_ms, segmentMap) : msToTimecode(block.start_ms)}
         </span>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <button
@@ -396,6 +405,7 @@ function BlockRow({ block, index, role, sectionIndex, isSelected, onSelect, onTe
 export default function ReviewPage({ jobId, onBack, authHeaders }) {
   const [blocks, setBlocks] = useState(null)
   const [jobFilename, setJobFilename] = useState("")
+  const [segmentMap, setSegmentMap] = useState(null)
   const [loading, setLoading] = useState(true)
   const [audioAvailable, setAudioAvailable] = useState(true)
   const [renameTarget, setRenameTarget] = useState(null)
@@ -526,6 +536,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
           }
           setBlocks(migrated)
           setJobFilename(data.filename ? data.filename.replace(/\.[^.]+$/, "") : jobId)
+          setSegmentMap(data.segment_map || null)
           setLoading(false)
         })
       fetch(`${API}/jobs/${jobId}/audio-available`, { headers })
@@ -953,6 +964,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
             onInsert={type => insertBlock(i, type)}
             onDelete={() => deleteBlock(i)}
             onToggleQa={toggleQaFrom}
+            segmentMap={segmentMap}
             isSelected={selectedIndex === i}
             onSelect={() => setSelectedIndex(i)}
             onTextChange={handleTextChange}

@@ -14,7 +14,7 @@ import psycopg2.extras
 import assemblyai as aai
 import stripe
 import ffmpeg
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from docx import Document
 from docx.shared import Pt
 from docx.enum.text import WD_LINE_SPACING, WD_ALIGN_PARAGRAPH
@@ -129,6 +129,15 @@ def db_update_audio_path(job_id: str, audio_path: str):
             cur.execute("UPDATE jobs SET audio_path=%s WHERE id=%s", (audio_path, job_id))
 
 
+def db_update_segment_map(job_id: str, segment_map: list):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE jobs SET segment_map=%s WHERE id=%s",
+                (psycopg2.extras.Json(segment_map) if segment_map else None, job_id)
+            )
+
+
 def db_update_status(job_id: str, status: str, error: str = None):
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -240,6 +249,21 @@ def read_tutc_timestamp(data: bytes):
         return struct.unpack('<Q', data[idx+8:idx+16])[0]
     return None
 
+_FILETIME_EPOCH = datetime(1601, 1, 1, tzinfo=timezone.utc)
+
+def read_tloc_local_ms(data: bytes):
+    """Read the TRM 'TLOC' chunk (local recording time, Windows FILETIME: 100ns
+    ticks since 1601-01-01) and return it as a "floating" epoch-ms value -- i.e.
+    the literal wall-clock digits (hour/min/sec) reinterpreted as if UTC, so that
+    formatting it with UTC-based methods anywhere reproduces those same digits
+    regardless of server/browser timezone. Not a real UTC instant."""
+    idx = data.find(b'TLOC')
+    if idx < 0 or idx + 16 > len(data):
+        return None
+    raw = struct.unpack('<Q', data[idx+8:idx+16])[0]
+    dt = _FILETIME_EPOCH + timedelta(microseconds=raw / 10)
+    return int(dt.timestamp() * 1000)
+
 def merge_audio_files(paths: list, output_path: str):
     if len(paths) == 1:
         (ffmpeg.input(paths[0]).audio
@@ -250,6 +274,21 @@ def merge_audio_files(paths: list, output_path: str):
         (ffmpeg.concat(*[i.audio for i in inputs], v=0, a=1)
          .output(output_path, acodec='libmp3lame', audio_bitrate='192k')
          .run(overwrite_output=True, quiet=True))
+
+def build_segment_map(sorted_file_data):
+    """Map each source file's position in the merged audio to its real-world local
+    start time, from the (ts, local_ms, filename, path) tuples in merge order.
+    Returns None if any file lacks a TLOC timestamp -- a partial map isn't useful."""
+    if any(d[1] is None for d in sorted_file_data):
+        return None
+    segments = []
+    cursor_ms = 0
+    for _ts, local_ms, _filename, path in sorted_file_data:
+        probe = ffmpeg.probe(path)
+        duration_ms = int(float(probe['format']['duration']) * 1000)
+        segments.append({"start_ms": cursor_ms, "end_ms": cursor_ms + duration_ms, "local_start_ms": local_ms})
+        cursor_ms += duration_ms
+    return segments
 
 def extract_case_name(filename: str) -> str:
     m = re.match(r'^(.+?)_\d{8}-\d{4}_', filename)
@@ -501,19 +540,21 @@ async def create_job(files: List[UploadFile] = File(...), word_boost: str = Form
                 with open(temp_path, "wb") as fp:
                     fp.write(content)
                 ts = read_tutc_timestamp(content[:512])
-                file_data.append((ts if ts is not None else float('inf'), f.filename, temp_path))
+                local_ms = read_tloc_local_ms(content[:512])
+                file_data.append((ts if ts is not None else float('inf'), local_ms, f.filename, temp_path))
 
-            file_data.sort(key=lambda x: (x[0], x[1]))
-            sorted_paths = [d[2] for d in file_data]
+            file_data.sort(key=lambda x: (x[0], x[2]))
+            sorted_paths = [d[3] for d in file_data]
 
             audio_path = os.path.join(UPLOAD_DIR, f"{job_id}.mp3")
             await asyncio.to_thread(merge_audio_files, sorted_paths, audio_path)
+            segment_map = await asyncio.to_thread(build_segment_map, file_data)
 
             for p in sorted_paths:
                 if os.path.exists(p):
                     os.remove(p)
 
-            filename = extract_case_name(file_data[0][1])
+            filename = extract_case_name(file_data[0][2])
         else:
             f = audio_files[0]
             content = await f.read()
@@ -522,6 +563,7 @@ async def create_job(files: List[UploadFile] = File(...), word_boost: str = Form
             with open(audio_path, "wb") as fp:
                 fp.write(content)
             filename = f.filename
+            segment_map = None
     except OSError as e:
         if e.errno == errno.ENOSPC:
             raise HTTPException(status_code=507, detail="Server storage is full — contact administrator.")
@@ -529,6 +571,8 @@ async def create_job(files: List[UploadFile] = File(...), word_boost: str = Form
 
     storage_key = f"{user}/{job_id}{os.path.splitext(audio_path)[1]}"
     db_create_job(job_id, filename, None, user)
+    if segment_map:
+        db_update_segment_map(job_id, segment_map)
 
     boost_words = [w.strip() for w in word_boost.splitlines() if w.strip()]
 
