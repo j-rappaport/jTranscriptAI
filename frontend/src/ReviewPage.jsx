@@ -81,7 +81,10 @@ function msToTimecode(ms) {
 function msToRealClock(ms, segmentMap) {
   const seg = segmentMap.find(s => ms < s.end_ms) || segmentMap[segmentMap.length - 1]
   const d = new Date(seg.local_start_ms + (ms - seg.start_ms))
-  return `${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")}:${String(d.getUTCSeconds()).padStart(2,"0")}`
+  const h24 = d.getUTCHours()
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12
+  const ampm = h24 < 12 ? "AM" : "PM"
+  return `${String(h12).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")}:${String(d.getUTCSeconds()).padStart(2,"0")} ${ampm}`
 }
 
 function focusElementAt(el, pos) {
@@ -417,6 +420,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [playbackRate, setPlaybackRate] = useState(1)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [currentMs, setCurrentMs] = useState(0)
   const audioRef = useRef(null)
   const blocksRef = useRef(null)
   const selectedIndexRef = useRef(0)
@@ -428,6 +432,13 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   const burstRef = useRef(null)
   const burstTimerRef = useRef(null)
   useEffect(() => { if (audioRef.current) audioRef.current.playbackRate = playbackRate }, [playbackRate])
+  useEffect(() => {
+    const el = audioRef.current
+    if (!el) return
+    const onTimeUpdate = () => setCurrentMs(el.currentTime * 1000)
+    el.addEventListener("timeupdate", onTimeUpdate)
+    return () => el.removeEventListener("timeupdate", onTimeUpdate)
+  }, [audioAvailable, loading])
   useEffect(() => { blocksRef.current = blocks }, [blocks])
   useEffect(() => { renameTargetRef.current = renameTarget }, [renameTarget])
   useEffect(() => { if (renameTarget && modalRef.current) modalRef.current.focus() }, [renameTarget])
@@ -927,6 +938,11 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
                 }}
               >{r}×</button>
             ))}
+            {segmentMap && (
+              <span style={{ marginLeft: "auto", fontFamily: "ui-monospace, Consolas, monospace", fontSize: 12, color: "#555" }}>
+                {msToRealClock(currentMs, segmentMap)}
+              </span>
+            )}
           </div>
         )}
       </div>
