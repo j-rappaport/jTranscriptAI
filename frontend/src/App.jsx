@@ -173,6 +173,17 @@ function HomePage() {
   useEffect(() => { localStorage.setItem("jt_boost_words", boostWords) }, [boostWords])
 
   useEffect(() => {
+    const syncFromUrl = () => {
+      const job = new URLSearchParams(window.location.search).get("job")
+      if (job) { setJobId(job); setReviewing(true) }
+      else { setReviewing(false); setJobId(null) }
+    }
+    syncFromUrl()
+    window.addEventListener("popstate", syncFromUrl)
+    return () => window.removeEventListener("popstate", syncFromUrl)
+  }, [])
+
+  useEffect(() => {
     if (isSignedIn) {
       fetchJobs()
       fetchCredits()
@@ -309,6 +320,7 @@ function HomePage() {
   function openReview(id) {
     setJobId(id)
     setReviewing(true)
+    window.history.pushState({}, "", `/?job=${id}`)
   }
 
   if (!isLoaded) return null
@@ -325,6 +337,7 @@ function HomePage() {
         setJobId(null)
         setFiles([])
         fetchJobs()
+        window.history.pushState({}, "", "/")
       }}
     />
   }
@@ -490,7 +503,7 @@ function HomePage() {
           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 4, marginTop: 10, background: statusBg[status], color: statusColor[status], fontSize: 13 }}>
             <div style={{ width: 7, height: 7, borderRadius: "50%", background: statusColor[status], flexShrink: 0 }} />
             {status === "done"
-              ? <span>Done — <span onClick={() => setReviewing(true)} style={{ textDecoration: "underline", cursor: "pointer", fontWeight: 500 }}>Review transcript →</span></span>
+              ? <span>Done — <span onClick={() => openReview(jobId)} style={{ textDecoration: "underline", cursor: "pointer", fontWeight: 500 }}>Review transcript →</span></span>
               : status === "error" ? `Error: ${error}`
               : `Status: ${status}…`
             }
