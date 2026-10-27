@@ -21,13 +21,16 @@ const SHORTCUTS = [
 
 const SPEED_PRESETS = [0.5, 0.75, 1, 1.25, 1.5]
 
+// Meta blocks store their full expanded text in `text`, edited directly on the Review page.
+// `template` seeds that text on insert, and upgrades legacy blocks that only stored `fields`.
+// Witness blocks: the first line is the witness name (centered + underlined in the .docx).
 const META_BLOCKS = {
   witness_sworn: {
     label: "Witness Sworn",
     fields: ["NAME"],
     template: f => {
       const name = (f.NAME || "").trim().toUpperCase() || "______"
-      return `_${name}_\nWas thereupon called as a witness on behalf of the State; and, having been first duly sworn, was examined and testified as follows:`
+      return `${name}\nWas thereupon called as a witness on behalf of the ____; and, having been first duly sworn, was examined and testified as follows:`
     },
   },
   witness_sworn_gj: {
@@ -35,7 +38,7 @@ const META_BLOCKS = {
     fields: ["NAME"],
     template: f => {
       const name = (f.NAME || "").trim().toUpperCase() || "______"
-      return `_${name}_\nWas thereupon called as a witness; and, having been first duly sworn, was examined and testified as follows:`
+      return `${name}\nWas thereupon called as a witness; and, having been first duly sworn, was examined and testified as follows:`
     },
   },
   pause_in_proceedings: {
@@ -208,11 +211,11 @@ function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onM
         onBlur={onTextBlur}
         onFocus={onSelect}
         onKeyDown={e => {
-          if (e.key === "Enter" && !e.shiftKey) {
+          if (e.key === "Enter" && !e.shiftKey && onSplitHere) {
             e.preventDefault()
             const cursor = e.target.selectionStart
             onSplitHere(index, e.target.value.slice(0, cursor), e.target.value.slice(cursor))
-          } else if (e.key === "Backspace" || e.key === "Delete") {
+          } else if ((e.key === "Backspace" || e.key === "Delete") && onMergeIntoPrevious) {
             const { selectionStart: s, selectionEnd: en } = e.target
             const atStart = e.key === "Backspace" && s === en && s === 0
             const nextText = s === en
@@ -246,7 +249,7 @@ function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onM
   )
 }
 
-function BlockRow({ block, index, role, sectionIndex, isSelected, onSelect, onTextChange, onTextBlur, onRenameOne, onSplitHere, onMergeIntoPrevious, onFocusNext, onFocusPrev, onMetaFieldChange, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete, onToggleQa, segmentMap, textareaRef }) {
+function BlockRow({ block, index, role, sectionIndex, isSelected, onSelect, onTextChange, onTextBlur, onRenameOne, onSplitHere, onMergeIntoPrevious, onFocusNext, onFocusPrev, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete, onToggleQa, segmentMap, textareaRef }) {
   const rowBg = isSelected ? "#dcfce7" : (sectionIndex % 2 === 0 ? "white" : "#fafafa")
 
   const rowStyle = {
@@ -296,44 +299,26 @@ function BlockRow({ block, index, role, sectionIndex, isSelected, onSelect, onTe
 
   const meta = META_BLOCKS[block.type]
   if (meta) {
-    const fields = block.fields || {}
     return (
       <div
         style={rowStyle}
-        onClick={() => { onSelect(); focusBlockText(index, "input") }}
+        onClick={() => { onSelect(); focusBlockText(index, "textarea") }}
         data-block-index={index}
       >
         <div>{renderInsertBtn(false)}</div>
-        <div style={{ gridColumn: "2 / -1" }}>
+        <div style={{ gridColumn: "2 / -1" }} onClick={e => e.stopPropagation()}>
           <div style={{ fontSize: 11, fontWeight: 600, color: "#888", textTransform: "uppercase", letterSpacing: "0.06em", fontStyle: "italic", marginBottom: 4 }}>
             {meta.label}
           </div>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-            {meta.fields.map(field => (
-              <label key={field} style={{ display: "flex", alignItems: "center", gap: 5 }} onClick={e => e.stopPropagation()}>
-                <span style={{ fontSize: 11, color: "#aaa", textTransform: "uppercase", letterSpacing: "0.04em" }}>{field}</span>
-                <input
-                  type="text"
-                  value={fields[field] ?? ""}
-                  onChange={e => onMetaFieldChange(field, e.target.value)}
-                  onFocus={onSelect}
-                  onKeyDown={e => {
-                    if (e.key === "ArrowDown") { e.preventDefault(); onFocusNext() }
-                    else if (e.key === "ArrowUp") { e.preventDefault(); onFocusPrev() }
-                  }}
-                  placeholder="—"
-                  style={{
-                    fontSize: 13, padding: "2px 7px", borderRadius: 3,
-                    border: "1px solid #b0b0b0",
-                    background: "white", color: "#222", fontFamily: "inherit",
-                    minWidth: meta.fields.length === 1 ? 200 : 90,
-                    outline: "none",
-                    caretColor: "#dc2626",
-                  }}
-                />
-              </label>
-            ))}
-          </div>
+          <UtteranceText
+            index={index}
+            text={block.text ?? ""}
+            onTextChange={value => onTextChange(index, value)}
+            onTextBlur={onTextBlur}
+            onFocusNext={onFocusNext}
+            onFocusPrev={onFocusPrev}
+            onSelect={onSelect}
+          />
         </div>
       </div>
     )
@@ -542,6 +527,10 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
               const { text, ...rest } = b
               b = { ...rest, fields: { [META_BLOCKS[b.type].fields[0]]: text || "" } }
             }
+            if (META_BLOCKS[b.type] && b.text === undefined) {
+              const { fields, ...rest } = b
+              b = { ...rest, text: META_BLOCKS[b.type].template(fields || {}) }
+            }
             if (b.type === "utterance" && qaOn) b = { ...b, qa: true }
             migrated.push(b)
           }
@@ -618,15 +607,6 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     putBlocks(next)
   }
 
-  function updateMetaField(index, fieldName, value) {
-    recordHistory(true)
-    const updated = blocks.map((b, i) =>
-      i === index ? { ...b, fields: { ...(b.fields || {}), [fieldName]: value } } : b
-    )
-    setBlocks(updated)
-    putBlocks(updated)
-  }
-
   function openSpeakerPicker(index, speaker) {
     setRenameTarget({ index })
     setRenameOriginal(speaker)
@@ -676,17 +656,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     if (!cur || target < 0 || target >= cur.length) return
     setSelectedIndex(target)
 
-    const block = cur[target]
-    const meta = META_BLOCKS[block.type]
-    let el = null
-
-    if (block.type === "utterance") {
-      el = document.querySelector(`[data-block-index="${target}"] textarea`)
-    } else if (meta) {
-      const inputs = document.querySelectorAll(`[data-block-index="${target}"] input`)
-      el = direction > 0 ? inputs[0] : inputs[inputs.length - 1]
-    }
-
+    const el = document.querySelector(`[data-block-index="${target}"] textarea`)
     const landed = el && focusElementAt(el, direction > 0 ? 0 : el.value.length)
     if (!landed) document.activeElement?.blur()
   }
@@ -774,8 +744,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     recordHistory(false)
     let newBlock
     if (META_BLOCKS[type]) {
-      const emptyFields = Object.fromEntries(META_BLOCKS[type].fields.map(f => [f, ""]))
-      newBlock = { type, fields: emptyFields, start_ms: cur[afterIndex]?.end_ms ?? 0, end_ms: cur[afterIndex]?.end_ms ?? 0 }
+      newBlock = { type, text: META_BLOCKS[type].template({}), start_ms: cur[afterIndex]?.end_ms ?? 0, end_ms: cur[afterIndex]?.end_ms ?? 0 }
     } else {
       newBlock = { type: "utterance", speaker: "UNKNOWN SPEAKER", text: "", start_ms: cur[afterIndex]?.end_ms ?? 0, end_ms: cur[afterIndex]?.end_ms ?? 0 }
     }
@@ -797,7 +766,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
       const b = blocks[i]
       const role = roles[i]
       if (META_BLOCKS[b.type]) {
-        const text = META_BLOCKS[b.type].template(b.fields || {})
+        const text = b.text ?? ""
         if (text) {
           lines.push("")
           for (const line of text.split("\n")) lines.push(line)
@@ -985,7 +954,6 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
             onSelect={() => setSelectedIndex(i)}
             onTextChange={handleTextChange}
             onTextBlur={saveBlocksNow}
-            onMetaFieldChange={(field, value) => updateMetaField(i, field, value)}
             textareaRef={i === firstUtteranceIndex ? firstUtteranceRef : null}
           />
         ))}

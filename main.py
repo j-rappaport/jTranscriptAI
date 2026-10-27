@@ -431,6 +431,25 @@ def _add_para(doc, text=""):
         run.font.size = Pt(12)
     return p
 
+# Meta blocks now store their full expanded text in "text" (edited on the Review page).
+# Older blocks only stored "fields"; expand those the same way the frontend's META_BLOCKS templates do.
+def _legacy_meta_text(btype, fields):
+    if btype in ("witness_sworn", "witness_sworn_gj"):
+        name = (fields.get("NAME") or "").strip().upper() or "______"
+        boilerplate = (
+            "Was thereupon called as a witness on behalf of the ____; and, having been first duly sworn, was examined and testified as follows:"
+            if btype == "witness_sworn"
+            else "Was thereupon called as a witness; and, having been first duly sworn, was examined and testified as follows:"
+        )
+        return f"{name}\n{boilerplate}"
+    if btype == "pause_in_proceedings":
+        return f"(Pause in proceedings, {fields.get('START') or '___'} - {fields.get('END') or '___'})"
+    if btype == "whispered_discussion":
+        return f"(Whispered discussion, off the record, {fields.get('START') or '___'} - {fields.get('END') or '___'})"
+    if btype == "exhibit_received":
+        return f"({fields.get('ROLE') or '___'}'s Exhibit No. {fields.get('NUMBER') or '___'} received.)"
+    return fields.get("TEXT", "")
+
 def generate_docx(blocks):
     doc = _open_dotm()
 
@@ -462,46 +481,37 @@ def generate_docx(blocks):
         # Meta blocks always break the Q/A "BY" header chain
         prev_role = ""
 
+        text = block.get("text")
+        if text is None:
+            text = _legacy_meta_text(btype, fields)
+        lines = text.split("\n")
+
         if btype in ("witness_sworn", "witness_sworn_gj"):
-            name = (fields.get("NAME") or "").strip().upper() or "______"
-            boilerplate = (
-                "Was thereupon called as a witness on behalf of the State; and, having been first duly sworn, was examined and testified as follows:"
-                if btype == "witness_sworn"
-                else "Was thereupon called as a witness; and, having been first duly sworn, was examined and testified as follows:"
-            )
+            # First line is the witness name (centered, underlined); the rest is body text
             p = _add_para(doc)
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            run = p.add_run(name)
+            run = p.add_run(lines[0])
             run.font.name = "Courier New"
             run.font.size = Pt(12)
             run.underline = True
-            _add_para(doc, boilerplate)
-
-        elif btype == "pause_in_proceedings":
-            start, end = fields.get("START", "___"), fields.get("END", "___")
-            p = _add_para(doc, f"(Pause in proceedings, {start} - {end})")
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-        elif btype == "whispered_discussion":
-            start, end = fields.get("START", "___"), fields.get("END", "___")
-            p = _add_para(doc, f"(Whispered discussion, off the record, {start} - {end})")
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-        elif btype == "exhibit_received":
-            role_f = fields.get("ROLE", "___")
-            number = fields.get("NUMBER", "___")
-            p = _add_para(doc, f"({role_f}'s Exhibit No. {number} received.)")
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            for line in lines[1:]:
+                _add_para(doc, line)
 
         elif btype == "header":
-            text = fields.get("TEXT", "")
-            if text:
+            for line in lines:
+                if not line:
+                    continue
                 p = _add_para(doc)
                 p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                run = p.add_run(text)
+                run = p.add_run(line)
                 run.font.name = "Courier New"
                 run.font.size = Pt(12)
                 run.underline = True
+
+        elif btype in ("pause_in_proceedings", "whispered_discussion", "exhibit_received"):
+            for line in lines:
+                p = _add_para(doc, line)
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
     buf = io.BytesIO()
     doc.save(buf)
