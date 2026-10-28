@@ -264,16 +264,59 @@ def read_tloc_local_ms(data: bytes):
     dt = _FILETIME_EPOCH + timedelta(microseconds=raw / 10)
     return int(dt.timestamp() * 1000)
 
+# Multichannel mixdown. Courtroom recorders (e.g. .trm, 8 channels) give each mic its own
+# channel, and how many are wired up, live, or just room noise varies job to job. Without
+# explicit handling ffmpeg guesses a surround layout and downmixes by surround rules, which
+# drops some mics into one ear only. Instead, measure every channel and mix only the live ones.
+DEAD_CHANNEL_DB = 30      # loudest moment this far below the loudest channel's -> dead/unused mic
+NOISE_ONLY_RANGE_DB = 5   # loudest moment this close to the channel's average -> steady hum, no speech
+
+def _audio_stream(paths: list):
+    inputs = [ffmpeg.input(p).audio for p in paths]
+    return inputs[0] if len(inputs) == 1 else ffmpeg.concat(*inputs, v=0, a=1)
+
+def measure_channels(paths: list) -> dict:
+    """Per-channel stats (dB) over the whole job: {channel_number: {"RMS level", "RMS peak", "Peak level"}}.
+    "RMS peak" is the loudest 0.5s window, so a mic used only briefly still registers as live."""
+    _, err = (_audio_stream(paths)
+              .filter('astats', length=0.5, measure_overall='none',
+                      measure_perchannel='RMS_level+RMS_peak+Peak_level')
+              .output('-', format='null')
+              .run(quiet=True))
+    stats, ch = {}, None
+    for line in err.decode(errors='replace').splitlines():
+        if m := re.search(r"Channel: (\d+)", line):
+            ch = int(m.group(1))
+            stats[ch] = {}
+        elif ch is not None and (m := re.search(r"(RMS level|RMS peak|Peak level) dB: (\S+)", line)):
+            stats[ch][m.group(1)] = max(float(m.group(2)), -200.0)
+    return stats
+
+def pick_live_channels(stats: dict) -> list:
+    loudest = max(s["RMS peak"] for s in stats.values())
+    audible = [c for c, s in stats.items() if s["RMS peak"] >= loudest - DEAD_CHANNEL_DB]
+    speech = [c for c in audible if stats[c]["RMS peak"] - stats[c]["RMS level"] >= NOISE_ONLY_RANGE_DB]
+    return speech or audible
+
 def merge_audio_files(paths: list, output_path: str):
-    if len(paths) == 1:
-        (ffmpeg.input(paths[0]).audio
-         .output(output_path, acodec='libmp3lame', audio_bitrate='192k')
-         .run(overwrite_output=True, quiet=True))
-    else:
-        inputs = [ffmpeg.input(p) for p in paths]
-        (ffmpeg.concat(*[i.audio for i in inputs], v=0, a=1)
-         .output(output_path, acodec='libmp3lame', audio_bitrate='192k')
-         .run(overwrite_output=True, quiet=True))
+    stream = _audio_stream(paths)
+    probe = ffmpeg.probe(paths[0])
+    channels = next(s["channels"] for s in probe["streams"] if s["codec_type"] == "audio")
+    if channels > 1:
+        stats = measure_channels(paths)
+        live = pick_live_channels(stats)
+        # Equal-weight sum; scale down only if the live channels' combined peaks could clip
+        peak_sum = sum(10 ** (stats[c]["Peak level"] / 20) for c in live)
+        gain = min(1.0, 0.95 / peak_sum) if peak_sum > 0 else 1.0
+        print(f"Audio mixdown: {channels} channels, mixing {live}, gain {gain:.2f} "
+              f"(RMS peak dB: { {c: round(s['RMS peak'], 1) for c, s in stats.items()} })")
+        # pan's "<" averages the channels (ffmpeg-python would escape the "=" form); volume restores the sum
+        stream = (stream
+                  .filter('pan', 'mono|c0<' + '+'.join(f'c{c - 1}' for c in live))
+                  .filter('volume', round(len(live) * gain, 4)))
+    (stream
+     .output(output_path, acodec='libmp3lame', audio_bitrate='192k')
+     .run(overwrite_output=True, quiet=True))
 
 def build_segment_map(sorted_file_data):
     """Map each source file's position in the merged audio to its real-world local
