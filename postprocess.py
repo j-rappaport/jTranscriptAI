@@ -74,9 +74,52 @@ def repeats_to_double_hyphens(text: str) -> str:
     return re.sub(rf"\b({_BARE_REPEAT_WORDS}) (?=\1\b)", r"\1 -- ", out, flags=re.I)
 
 
+_SMALL_NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]
+
+# Words after which a number is a label or reference and stays a numeral, along with
+# the rest of its list ("Exhibits 7, 8, and 9", "paragraph 3", "April 7").
+NUMERAL_LABELS = {
+    "exhibit", "exhibits", "no", "number", "numbers", "paragraph", "paragraphs", "subparagraph",
+    "section", "sections", "count", "counts", "page", "pages", "line", "lines", "rule", "chapter",
+    "article", "amendment", "measure", "item", "question", "case", "room", "apartment", "unit",
+    "suite", "building", "floor", "lot", "channel", "highway", "interstate", "route", "station",
+    "engine", "medic", "version", "grade", "level", "step", "table", "figure", "appendix", "volume",
+    "part", "parts", "phase", "day", "camera",
+    "january", "february", "march", "april", "may", "june", "july", "august", "september",
+    "october", "november", "december", "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep",
+    "sept", "oct", "nov", "dec",
+}
+_NUM_LIST_LINK = r"(?:,\s*(?:and\s+|or\s+)?|\s+(?:and|or|to|through)\s+|\s*-\s*)"
+_NUM_LIST = rf"\d+(?:{_NUM_LIST_LINK}\d+)*"
+_LABELED_NUMBERS = re.compile(rf"\b(?:{'|'.join(NUMERAL_LABELS)})\.?\s+#?{_NUM_LIST}", re.I)
+_AM_PM = r"\s*[ap]\.?m\b"
+_SMALL_NUMBER = re.compile(r"(?<![\w.,:$#/-])(10|\d)(?![\w%]|[.,:/-]\d)")
+
+
+def small_numbers_to_words(text: str) -> str:
+    """Numbers zero through ten are written as words ("3 years" -> "three years");
+    larger numbers stay numerals. Labels and references (exhibits, dates, paragraphs),
+    times ("6 PM", "4:40"), money, decimals, and ranges that run past ten ("10 to 15
+    minutes") keep their numerals."""
+    protected = [m.span() for m in _LABELED_NUMBERS.finditer(text)]
+    protected += [m.span() for m in re.finditer(_NUM_LIST, text)
+                  if any(int(n) > 10 for n in re.findall(r"\d+", m.group(0)))
+                  or re.match(_AM_PM, text[m.end():], re.I)]
+
+    def to_word(m):
+        if any(s <= m.start() < e for s, e in protected):
+            return m.group(0)
+        word = _SMALL_NUMBER_WORDS[int(m.group(1))]
+        sentence_start = re.search(r"(^|[.?!]\s+)$", text[:m.start()])
+        return word.capitalize() if sentence_start else word
+
+    return _SMALL_NUMBER.sub(to_word, text)
+
+
 RULES = [
     em_dashes_to_double_hyphens,
     repeats_to_double_hyphens,
+    small_numbers_to_words,  # after repeats: digits are exempt from repeat-dashing ("2, 2"), words aren't
 ]
 
 
