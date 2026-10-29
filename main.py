@@ -481,25 +481,6 @@ def _add_para(doc, text=""):
         run.font.size = Pt(12)
     return p
 
-# Meta blocks now store their full expanded text in "text" (edited on the Review page).
-# Older blocks only stored "fields"; expand those the same way the frontend's META_BLOCKS templates do.
-def _legacy_meta_text(btype, fields):
-    if btype in ("witness_sworn", "witness_sworn_gj"):
-        name = (fields.get("NAME") or "").strip().upper() or "______"
-        boilerplate = (
-            "Was thereupon called as a witness on behalf of the ____; and, having been first duly sworn, was examined and testified as follows:"
-            if btype == "witness_sworn"
-            else "Was thereupon called as a witness; and, having been first duly sworn, was examined and testified as follows:"
-        )
-        return f"{name}\n{boilerplate}"
-    if btype == "pause_in_proceedings":
-        return f"(Pause in proceedings, {fields.get('START') or '___'} - {fields.get('END') or '___'})"
-    if btype == "whispered_discussion":
-        return f"(Whispered discussion, off the record, {fields.get('START') or '___'} - {fields.get('END') or '___'})"
-    if btype == "exhibit_received":
-        return f"({fields.get('ROLE') or '___'}'s Exhibit No. {fields.get('NUMBER') or '___'} received.)"
-    return fields.get("TEXT", "")
-
 def generate_docx(blocks):
     doc = _open_dotm()
 
@@ -517,7 +498,6 @@ def generate_docx(blocks):
     for i, block in enumerate(blocks):
         btype = block.get("type", "utterance")
         role = roles[i]
-        fields = block.get("fields", {})
 
         if btype == "utterance":
             text = _normalize(block.get("text", ""))
@@ -531,10 +511,7 @@ def generate_docx(blocks):
         # Meta blocks always break the Q/A "BY" header chain
         prev_role = ""
 
-        text = block.get("text")
-        if text is None:
-            text = _legacy_meta_text(btype, fields)
-        lines = text.split("\n")
+        lines = block.get("text", "").split("\n")
 
         if btype in ("witness_sworn", "witness_sworn_gj"):
             # First line is the witness name (centered, underlined); the rest is body text

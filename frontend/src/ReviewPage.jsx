@@ -21,45 +21,33 @@ const SHORTCUTS = [
 
 const SPEED_PRESETS = [0.5, 0.75, 1, 1.25, 1.5]
 
-// Meta blocks store their full expanded text in `text`, edited directly on the Review page.
-// `template` seeds that text on insert, and upgrades legacy blocks that only stored `fields`.
+// Meta blocks are free text, edited directly on the Review page; `defaultText` is only the
+// starting point on insert. The type just controls .docx formatting (see main.py's generate_docx).
 // Witness blocks: the first line is the witness name (centered + underlined in the .docx).
 const META_BLOCKS = {
   witness_sworn: {
     label: "Witness Sworn",
-    fields: ["NAME"],
-    template: f => {
-      const name = (f.NAME || "").trim().toUpperCase() || "______"
-      return `${name}\nWas thereupon called as a witness on behalf of the ____; and, having been first duly sworn, was examined and testified as follows:`
-    },
+    defaultText: "______\nWas thereupon called as a witness on behalf of the ____; and, having been first duly sworn, was examined and testified as follows:",
   },
   witness_sworn_gj: {
     label: "Witness Sworn (GJ)",
-    fields: ["NAME"],
-    template: f => {
-      const name = (f.NAME || "").trim().toUpperCase() || "______"
-      return `${name}\nWas thereupon called as a witness; and, having been first duly sworn, was examined and testified as follows:`
-    },
+    defaultText: "______\nWas thereupon called as a witness; and, having been first duly sworn, was examined and testified as follows:",
   },
   pause_in_proceedings: {
     label: "Pause in Proceedings",
-    fields: ["START", "END"],
-    template: f => `(Pause in proceedings, ${f.START || "___"} - ${f.END || "___"})`,
+    defaultText: "(Pause in proceedings, ___ - ___)",
   },
   whispered_discussion: {
     label: "Whispered Discussion",
-    fields: ["START", "END"],
-    template: f => `(Whispered discussion, off the record, ${f.START || "___"} - ${f.END || "___"})`,
+    defaultText: "(Whispered discussion, off the record, ___ - ___)",
   },
   exhibit_received: {
     label: "Exhibit Received",
-    fields: ["ROLE", "NUMBER"],
-    template: f => `(${f.ROLE || "___"}'s Exhibit No. ${f.NUMBER || "___"} received.)`,
+    defaultText: "(___'s Exhibit No. ___ received.)",
   },
   header: {
     label: "Header",
-    fields: ["TEXT"],
-    template: f => f.TEXT || "",
+    defaultText: "",
   },
 }
 
@@ -546,14 +534,6 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
           for (const raw of data.blocks) {
             let b = !raw.type ? { ...raw, type: "utterance" } : raw
             if (b.type === "qa_toggle") { qaOn = !qaOn; continue }
-            if (META_BLOCKS[b.type] && !b.fields) {
-              const { text, ...rest } = b
-              b = { ...rest, fields: { [META_BLOCKS[b.type].fields[0]]: text || "" } }
-            }
-            if (META_BLOCKS[b.type] && b.text === undefined) {
-              const { fields, ...rest } = b
-              b = { ...rest, text: META_BLOCKS[b.type].template(fields || {}) }
-            }
             if (b.type === "utterance" && qaOn) b = { ...b, qa: true }
             migrated.push(b)
           }
@@ -768,7 +748,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     recordHistory(false)
     let newBlock
     if (META_BLOCKS[type]) {
-      newBlock = { type, text: META_BLOCKS[type].template({}), start_ms: cur[afterIndex]?.end_ms ?? 0, end_ms: cur[afterIndex]?.end_ms ?? 0 }
+      newBlock = { type, text: META_BLOCKS[type].defaultText, start_ms: cur[afterIndex]?.end_ms ?? 0, end_ms: cur[afterIndex]?.end_ms ?? 0 }
     } else {
       newBlock = { type: "utterance", speaker: "UNKNOWN SPEAKER", text: "", start_ms: cur[afterIndex]?.end_ms ?? 0, end_ms: cur[afterIndex]?.end_ms ?? 0 }
     }
