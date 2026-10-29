@@ -81,15 +81,14 @@ function msToRealClock(ms, segmentMap) {
 // Which source mic channels went into the mono mixdown sent for transcription (see main.py's merge_audio_files)
 function ChannelMixIndicator({ channelMix }) {
   return (
-    <div style={{ display: "flex", gap: 4, marginBottom: 8, alignItems: "center", flexWrap: "wrap" }}>
-      <span style={{ fontSize: 11, color: "#aaa", marginRight: 4 }}>Mixdown tracks</span>
+    <div style={{ display: "flex", gap: 3, alignItems: "center", justifyContent: "flex-end", marginBottom: 6 }}>
       {channelMix.map(ch => (
         <span
           key={ch.channel}
           title={`Track ${ch.channel}: ${ch.used ? "used" : "excluded"} (loudest ${ch.rms_peak_db} dB, average ${ch.rms_level_db} dB)`}
           style={{
-            fontSize: 11, minWidth: 22, padding: "2px 6px", borderRadius: 4, textAlign: "center", cursor: "default",
-            border: ch.used ? "1.5px solid #16a34a" : "1px solid #d0d0d0",
+            fontSize: 9, minWidth: 14, padding: "0 3px", borderRadius: 3, textAlign: "center", cursor: "default",
+            border: ch.used ? "1px solid #16a34a" : "1px solid #d0d0d0",
             background: ch.used ? "#dcfce7" : "#f5f5f5",
             color: ch.used ? "#065f46" : "#aaa", fontWeight: ch.used ? 600 : 400,
             textDecoration: ch.used ? "none" : "line-through",
