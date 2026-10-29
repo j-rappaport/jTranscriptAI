@@ -90,6 +90,28 @@ function msToRealClock(ms, segmentMap) {
   return `${String(h12).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")}:${String(d.getUTCSeconds()).padStart(2,"0")} ${ampm}`
 }
 
+// Which source mic channels went into the mono mixdown sent for transcription (see main.py's merge_audio_files)
+function ChannelMixIndicator({ channelMix }) {
+  return (
+    <div style={{ display: "flex", gap: 4, marginBottom: 8, alignItems: "center", flexWrap: "wrap" }}>
+      <span style={{ fontSize: 11, color: "#aaa", marginRight: 4 }}>Mixdown tracks</span>
+      {channelMix.map(ch => (
+        <span
+          key={ch.channel}
+          title={`Track ${ch.channel}: ${ch.used ? "used" : "excluded"} (loudest ${ch.rms_peak_db} dB, average ${ch.rms_level_db} dB)`}
+          style={{
+            fontSize: 11, minWidth: 22, padding: "2px 6px", borderRadius: 4, textAlign: "center", cursor: "default",
+            border: ch.used ? "1.5px solid #16a34a" : "1px solid #d0d0d0",
+            background: ch.used ? "#dcfce7" : "#f5f5f5",
+            color: ch.used ? "#065f46" : "#aaa", fontWeight: ch.used ? 600 : 400,
+            textDecoration: ch.used ? "none" : "line-through",
+          }}
+        >{ch.channel}</span>
+      ))}
+    </div>
+  )
+}
+
 function focusElementAt(el, pos) {
   if (!el) return false
   el.focus()
@@ -394,6 +416,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   const [blocks, setBlocks] = useState(null)
   const [jobFilename, setJobFilename] = useState("")
   const [segmentMap, setSegmentMap] = useState(null)
+  const [channelMix, setChannelMix] = useState(null)
   const [loading, setLoading] = useState(true)
   const [audioAvailable, setAudioAvailable] = useState(true)
   const [renameTarget, setRenameTarget] = useState(null)
@@ -537,6 +560,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
           setBlocks(migrated)
           setJobFilename(data.filename ? data.filename.replace(/\.[^.]+$/, "") : jobId)
           setSegmentMap(data.segment_map || null)
+          setChannelMix(data.channel_mix || null)
           setLoading(false)
         })
       fetch(`${API}/jobs/${jobId}/audio-available`, { headers })
@@ -882,6 +906,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
       <div style={{ maxWidth: "min(1400px, 92vw)", margin: "32px auto 48px", padding: "0 20px", textAlign: "left" }}>
 
       <div style={{ position: "sticky", top: 0, zIndex: 50, background: "white", border: "1px solid #c9c9c9", borderRadius: 4, padding: "12px 16px", marginBottom: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
+        {channelMix && <ChannelMixIndicator channelMix={channelMix} />}
 {audioAvailable
   ? <audio
       ref={audioRef}

@@ -129,12 +129,13 @@ def db_update_audio_path(job_id: str, audio_path: str):
             cur.execute("UPDATE jobs SET audio_path=%s WHERE id=%s", (audio_path, job_id))
 
 
-def db_update_segment_map(job_id: str, segment_map: list):
+def db_update_audio_meta(job_id: str, segment_map: list, channel_mix: list):
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "UPDATE jobs SET segment_map=%s WHERE id=%s",
-                (psycopg2.extras.Json(segment_map) if segment_map else None, job_id)
+                "UPDATE jobs SET segment_map=%s, channel_mix=%s WHERE id=%s",
+                (psycopg2.extras.Json(segment_map) if segment_map else None,
+                 psycopg2.extras.Json(channel_mix) if channel_mix else None, job_id)
             )
 
 
@@ -299,7 +300,10 @@ def pick_live_channels(stats: dict) -> list:
     return speech or audible
 
 def merge_audio_files(paths: list, output_path: str):
+    """Returns the per-channel mix decision for multichannel input (None for mono):
+    [{"channel", "used", "rms_peak_db", "rms_level_db"}, ...]"""
     stream = _audio_stream(paths)
+    channel_mix = None
     probe = ffmpeg.probe(paths[0])
     channels = next(s["channels"] for s in probe["streams"] if s["codec_type"] == "audio")
     if channels > 1:
@@ -308,8 +312,10 @@ def merge_audio_files(paths: list, output_path: str):
         # Equal-weight sum; scale down only if the live channels' combined peaks could clip
         peak_sum = sum(10 ** (stats[c]["Peak level"] / 20) for c in live)
         gain = min(1.0, 0.95 / peak_sum) if peak_sum > 0 else 1.0
-        print(f"Audio mixdown: {channels} channels, mixing {live}, gain {gain:.2f} "
-              f"(RMS peak dB: { {c: round(s['RMS peak'], 1) for c, s in stats.items()} })")
+        channel_mix = [{"channel": c, "used": c in live,
+                        "rms_peak_db": round(s["RMS peak"], 1), "rms_level_db": round(s["RMS level"], 1)}
+                       for c, s in sorted(stats.items())]
+        print(f"Audio mixdown: {channels} channels, mixing {live}, gain {gain:.2f}")
         # pan's "<" averages the channels (ffmpeg-python would escape the "=" form); volume restores the sum
         stream = (stream
                   .filter('pan', 'mono|c0<' + '+'.join(f'c{c - 1}' for c in live))
@@ -317,6 +323,7 @@ def merge_audio_files(paths: list, output_path: str):
     (stream
      .output(output_path, acodec='libmp3lame', audio_bitrate='192k')
      .run(overwrite_output=True, quiet=True))
+    return channel_mix
 
 def build_segment_map(sorted_file_data):
     """Map each source file's position in the merged audio to its real-world local
@@ -600,7 +607,7 @@ async def create_job(files: List[UploadFile] = File(...), word_boost: str = Form
             sorted_paths = [d[3] for d in file_data]
 
             audio_path = os.path.join(UPLOAD_DIR, f"{job_id}.mp3")
-            await asyncio.to_thread(merge_audio_files, sorted_paths, audio_path)
+            channel_mix = await asyncio.to_thread(merge_audio_files, sorted_paths, audio_path)
             segment_map = await asyncio.to_thread(build_segment_map, file_data)
 
             for p in sorted_paths:
@@ -616,7 +623,7 @@ async def create_job(files: List[UploadFile] = File(...), word_boost: str = Form
             with open(audio_path, "wb") as fp:
                 fp.write(content)
             filename = f.filename
-            segment_map = None
+            segment_map = channel_mix = None
     except OSError as e:
         if e.errno == errno.ENOSPC:
             raise HTTPException(status_code=507, detail="Server storage is full — contact administrator.")
@@ -624,8 +631,8 @@ async def create_job(files: List[UploadFile] = File(...), word_boost: str = Form
 
     storage_key = f"{user}/{job_id}{os.path.splitext(audio_path)[1]}"
     db_create_job(job_id, filename, None, user)
-    if segment_map:
-        db_update_segment_map(job_id, segment_map)
+    if segment_map or channel_mix:
+        db_update_audio_meta(job_id, segment_map, channel_mix)
 
     boost_words = [w.strip() for w in word_boost.splitlines() if w.strip()]
 
