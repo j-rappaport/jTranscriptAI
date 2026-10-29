@@ -491,8 +491,6 @@ def generate_docx(blocks):
     for p in paras[4:]:
         body.remove(p)
 
-    _add_para(doc)  # blank separator
-
     roles = _compute_roles(blocks)
     prev_role = ""
 
@@ -515,13 +513,14 @@ def generate_docx(blocks):
         lines = block.get("text", "").split("\n")
 
         if btype in ("witness_sworn", "witness_sworn_gj"):
-            # First line is the witness name (centered, underlined); the rest is body text
+            # First line is the witness name (centered, underlined, italic); the rest is body text
             p = _add_para(doc)
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             run = p.add_run(lines[0])
             run.font.name = "Courier New"
             run.font.size = Pt(12)
             run.underline = True
+            run.italic = True
             for line in lines[1:]:
                 _add_para(doc, line)
 
