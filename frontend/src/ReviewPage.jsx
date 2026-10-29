@@ -99,6 +99,15 @@ function ChannelMixIndicator({ channelMix }) {
   )
 }
 
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 function focusElementAt(el, pos) {
   if (!el) return false
   el.focus()
@@ -404,6 +413,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   const [jobFilename, setJobFilename] = useState("")
   const [segmentMap, setSegmentMap] = useState(null)
   const [channelMix, setChannelMix] = useState(null)
+  const originalBlocksRef = useRef(null)
   const [loading, setLoading] = useState(true)
   const [audioAvailable, setAudioAvailable] = useState(true)
   const [renameTarget, setRenameTarget] = useState(null)
@@ -540,6 +550,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
           setJobFilename(data.filename ? data.filename.replace(/\.[^.]+$/, "") : jobId)
           setSegmentMap(data.segment_map || null)
           setChannelMix(data.channel_mix || null)
+          originalBlocksRef.current = data.original_utterances || null
           setLoading(false)
         })
       fetch(`${API}/jobs/${jobId}/audio-available`, { headers })
@@ -785,12 +796,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
       prevRole = role
     }
     const blob = new Blob([lines.join("\n")], { type: "text/plain" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `${jobFilename}_transcript.txt`
-    a.click()
-    URL.revokeObjectURL(url)
+    downloadBlob(blob, `${jobFilename}_transcript.txt`)
   }
 
   async function saveDocx() {
@@ -798,12 +804,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     const res = await fetch(`${API}/jobs/${jobId}/docx`, { headers })
     if (!res.ok) { alert("Failed to generate .docx"); return }
     const blob = await res.blob()
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `${jobFilename}_transcript.docx`
-    a.click()
-    URL.revokeObjectURL(url)
+    downloadBlob(blob, `${jobFilename}_transcript.docx`)
   }
 
   function saveBlob() {
@@ -812,12 +813,15 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
       .map(b => normalizeSentenceSpacing(b.text))
       .join("  ")
     const blob = new Blob([text], { type: "text/plain" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `${jobFilename}_blob.txt`
-    a.click()
-    URL.revokeObjectURL(url)
+    downloadBlob(blob, `${jobFilename}_blob.txt`)
+  }
+
+  // "original" is the immutable AI transcript (original_utterances); "current" includes unsaved edits
+  function saveJson(which) {
+    const data = which === "original" ? originalBlocksRef.current : blocks
+    if (!data) { alert("No original transcript stored for this job"); return }
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })
+    downloadBlob(blob, `${jobFilename}_${which}.json`)
   }
 
   const { roles, sectionIndices } = loading ? { roles: [], sectionIndices: [] } : computeBlockDisplay(blocks)
@@ -875,6 +879,12 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
                   </button>
                   <button onMouseDown={e => e.preventDefault()} onClick={() => { saveTranscript(); setMenuOpen(false) }} style={{ fontSize: 13, padding: "7px 10px", borderRadius: 4, border: "1px solid #b0b0b0", background: "white", color: "#555", cursor: "pointer", textAlign: "left" }}>
                     💾 Save .txt
+                  </button>
+                  <button onMouseDown={e => e.preventDefault()} onClick={() => { saveJson("original"); setMenuOpen(false) }} style={{ fontSize: 13, padding: "7px 10px", borderRadius: 4, border: "1px solid #b0b0b0", background: "white", color: "#555", cursor: "pointer", textAlign: "left" }}>
+                    💾 Save original .json
+                  </button>
+                  <button onMouseDown={e => e.preventDefault()} onClick={() => { saveJson("current"); setMenuOpen(false) }} style={{ fontSize: 13, padding: "7px 10px", borderRadius: 4, border: "1px solid #b0b0b0", background: "white", color: "#555", cursor: "pointer", textAlign: "left" }}>
+                    💾 Save current .json
                   </button>
                 </div>
               )}
