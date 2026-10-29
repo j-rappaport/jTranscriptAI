@@ -29,6 +29,7 @@ import httpx
 from jose import jwt as jose_jwt, JWTError
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
+from postprocess import postprocess_blocks
 
 load_dotenv()
 
@@ -148,7 +149,7 @@ def db_update_status(job_id: str, status: str, error: str = None):
             )
 
 
-def db_update_done(job_id: str, blocks: list, duration_ms: int):
+def db_update_done(job_id: str, blocks: list, original_blocks: list, duration_ms: int):
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -157,7 +158,7 @@ def db_update_done(job_id: str, blocks: list, duration_ms: int):
                 SET status='done', utterances=%s, original_utterances=%s, audio_duration_ms=%s
                 WHERE id=%s
                 """,
-                (psycopg2.extras.Json(blocks), psycopg2.extras.Json(blocks), duration_ms, job_id)
+                (psycopg2.extras.Json(blocks), psycopg2.extras.Json(original_blocks), duration_ms, job_id)
             )
 
 
@@ -782,7 +783,7 @@ def run_transcription(job_id: str, audio_path: str, storage_key: str, user_id: s
         ]
 
         duration_ms = int(transcript.audio_duration * 1000)
-        db_update_done(job_id, blocks, duration_ms)
+        db_update_done(job_id, postprocess_blocks(blocks), blocks, duration_ms)
         db_deduct_credits(user_id, duration_ms)
 
     except Exception as e:

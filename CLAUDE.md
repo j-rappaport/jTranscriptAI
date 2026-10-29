@@ -4,6 +4,7 @@ Court transcription SaaS. FastAPI backend + React frontend.
 
 ## Structure
 - `main.py` — FastAPI backend (all API routes, DB, transcription)
+- `postprocess.py` — Post-processing rules applied to AssemblyAI output (editable transcript only; add rules to `RULES`)
 - `frontend/src/App.jsx` — main upload page + login
 - `frontend/src/ReviewPage.jsx` — transcript review UI
 - `frontend/dist/` — built frontend (must be committed for deploy)
