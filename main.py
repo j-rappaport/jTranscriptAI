@@ -771,9 +771,12 @@ def run_transcription(job_id: str, audio_path: str, storage_key: str, user_id: s
         if transcript.status == aai.TranscriptStatus.error:
             raise RuntimeError(transcript.error)
 
+        # Speakers are identified by speaker_id; "speaker" is only the display name and may repeat
+        speaker_ids = {label: str(uuid.uuid4()) for label in {u.speaker for u in transcript.utterances}}
         blocks = [
             {
                 "type": "utterance",
+                "speaker_id": speaker_ids[u.speaker],
                 "speaker": f"SPEAKER {u.speaker}",
                 "text": u.text,
                 "start_ms": u.start,

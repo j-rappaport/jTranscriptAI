@@ -417,7 +417,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   const [loading, setLoading] = useState(true)
   const [audioAvailable, setAudioAvailable] = useState(true)
   const [renameTarget, setRenameTarget] = useState(null)
-  const [renameOriginal, setRenameOriginal] = useState(null)
+  const [renameSpeakerId, setRenameSpeakerId] = useState(null)
   const [renameValue, setRenameValue] = useState("")
   const [renameEditing, setRenameEditing] = useState(false)
   const [insertMenuIndex, setInsertMenuIndex] = useState(null)
@@ -475,7 +475,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
         e.preventDefault()
         const idx = selectedIndexRef.current
         const block = blocksRef.current?.[idx]
-        if (block?.type === "utterance") openSpeakerPicker(idx, block.speaker)
+        if (block?.type === "utterance") openSpeakerPicker(idx, block)
         return
       }
       if (e.key === "Tab") {
@@ -539,14 +539,22 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
         .then(r => r.json())
         .then(data => {
           let qaOn = false
+          let changed = false
+          const idsByName = {}
           const migrated = []
           for (const raw of data.blocks) {
             let b = !raw.type ? { ...raw, type: "utterance" } : raw
-            if (b.type === "qa_toggle") { qaOn = !qaOn; continue }
+            if (b.type === "qa_toggle") { qaOn = !qaOn; changed = true; continue }
             if (b.type === "utterance" && qaOn) b = { ...b, qa: true }
+            // Older jobs identified speakers by name only: give each distinct name an ID
+            if (b.type === "utterance" && !b.speaker_id) {
+              b = { ...b, speaker_id: idsByName[b.speaker] ??= crypto.randomUUID() }
+              changed = true
+            }
             migrated.push(b)
           }
           setBlocks(migrated)
+          if (changed) putBlocks(migrated)
           setJobFilename(data.filename ? data.filename.replace(/\.[^.]+$/, "") : jobId)
           setSegmentMap(data.segment_map || null)
           setChannelMix(data.channel_mix || null)
@@ -621,25 +629,28 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     putBlocks(next)
   }
 
-  function openSpeakerPicker(index, speaker) {
+  function openSpeakerPicker(index, block) {
     setRenameTarget({ index })
-    setRenameOriginal(speaker)
-    setRenameValue(speaker)
+    setRenameSpeakerId(block.speaker_id)
+    setRenameValue(block.speaker)
     setRenameEditing(false)
   }
 
   function openRenameOne(index) {
-    openSpeakerPicker(index, blocks[index].speaker)
+    openSpeakerPicker(index, blocks[index])
   }
 
   function applyRenameOne() {
     const name = renameValue.trim().toUpperCase()
     if (!name) return
+    // Speakers are identified by speaker_id; names may repeat ("THE WITNESS" twice).
+    // Edit renames that speaker everywhere; picking a row (or <NEW>) reassigns only this block.
+    const renaming = renameEditing && renameSpeakerId !== null
+    const speakerId = renameSpeakerId ?? crypto.randomUUID()
     recordHistory(false)
     const updated = blocks.map((b, i) => {
       if (b.type !== "utterance") return b
-      if (renameOriginal && b.speaker === renameOriginal) return { ...b, speaker: name }
-      if (i === renameTarget.index) return { ...b, speaker: name }
+      if (renaming ? b.speaker_id === speakerId : i === renameTarget.index) return { ...b, speaker_id: speakerId, speaker: name }
       return b
     })
     setBlocks(updated)
@@ -718,19 +729,24 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     }, 0)
   }
 
+  // All "UNKNOWN SPEAKER" placeholders share one ID, so they appear once in the picker
+  function unknownSpeaker(allBlocks) {
+    const existing = allBlocks.find(b => b.type === "utterance" && b.speaker === "UNKNOWN SPEAKER")
+    return { speaker_id: existing?.speaker_id ?? crypto.randomUUID(), speaker: "UNKNOWN SPEAKER" }
+  }
+
   function guessOtherSpeaker(allBlocks, index) {
-    const current = allBlocks[index]?.speaker
+    const current = allBlocks[index]?.speaker_id
     for (let i = index - 1; i >= 0; i--) {
       const b = allBlocks[i]
-      if (b.type === "utterance" && b.speaker !== current) return b.speaker
+      if (b.type === "utterance" && b.speaker_id !== current) return { speaker_id: b.speaker_id, speaker: b.speaker }
     }
-    return "UNKNOWN SPEAKER"
+    return unknownSpeaker(allBlocks)
   }
 
   function splitUtterance(index, beforeText, afterText) {
     recordHistory(false)
-    const speaker = guessOtherSpeaker(blocks, index)
-    const newBlock = { type: "utterance", speaker, text: afterText, qa: blocks[index]?.qa, start_ms: blocks[index]?.end_ms ?? 0, end_ms: blocks[index]?.end_ms ?? 0 }
+    const newBlock = { type: "utterance", ...guessOtherSpeaker(blocks, index), text: afterText, qa: blocks[index]?.qa, start_ms: blocks[index]?.end_ms ?? 0, end_ms: blocks[index]?.end_ms ?? 0 }
     const updated = blocks.map((b, i) => i === index ? { ...b, text: beforeText } : b)
     const withNew = [...updated.slice(0, index + 1), newBlock, ...updated.slice(index + 1)]
     setBlocks(withNew)
@@ -760,7 +776,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     if (META_BLOCKS[type]) {
       newBlock = { type, text: META_BLOCKS[type].defaultText, start_ms: cur[afterIndex]?.end_ms ?? 0, end_ms: cur[afterIndex]?.end_ms ?? 0 }
     } else {
-      newBlock = { type: "utterance", speaker: "UNKNOWN SPEAKER", text: "", start_ms: cur[afterIndex]?.end_ms ?? 0, end_ms: cur[afterIndex]?.end_ms ?? 0 }
+      newBlock = { type: "utterance", ...unknownSpeaker(cur), text: "", start_ms: cur[afterIndex]?.end_ms ?? 0, end_ms: cur[afterIndex]?.end_ms ?? 0 }
     }
     const updated = [
       ...cur.slice(0, afterIndex + 1),
@@ -974,18 +990,28 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
       </div>
 
       {renameTarget && (() => {
-        const allSpeakers = [...new Set(blocks.filter(b => b.type === "utterance").map(b => b.speaker))]
-        const isAddNew = renameOriginal === null
+        // One row per speaker ID, in order of first appearance; names can repeat, so
+        // duplicates get a hint (their first words) to tell them apart
+        const speakersById = new Map()
+        for (const b of blocks) {
+          if (b.type === "utterance" && !speakersById.has(b.speaker_id)) {
+            speakersById.set(b.speaker_id, { id: b.speaker_id, name: b.speaker, firstWords: b.text.split(/\s+/).slice(0, 6).join(" ") })
+          }
+        }
+        const speakerList = [...speakersById.values()]
+        const allSpeakers = speakerList.map(s => s.id)
+        const nameCounts = {}
+        for (const s of speakerList) nameCounts[s.name] = (nameCounts[s.name] || 0) + 1
+        const isAddNew = renameSpeakerId === null
 
-        function selectRow(s) {
-          setRenameOriginal(s)
-          setRenameValue(s ?? "")
+        function selectRow(id) {
+          setRenameSpeakerId(id)
+          setRenameValue(id === null ? "" : speakersById.get(id).name)
           setRenameEditing(false)
         }
 
-        function editRow(s) {
-          setRenameOriginal(s)
-          setRenameValue(s ?? "")
+        function editRow(id) {
+          selectRow(id)
           setRenameEditing(true)
         }
 
@@ -996,7 +1022,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
           if (e.key === "ArrowDown" || e.key === "ArrowUp") {
             e.preventDefault()
             const items = [...allSpeakers, null]
-            const cur = items.indexOf(renameOriginal)
+            const cur = items.indexOf(renameSpeakerId)
             const next = e.key === "ArrowDown" ? Math.min(cur + 1, items.length - 1) : Math.max(cur - 1, 0)
             selectRow(items[next])
             return
@@ -1024,7 +1050,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
               </div>
               <div style={{ border: "1px solid #c9c9c9", borderRadius: 4, overflow: "hidden", marginBottom: 16 }}>
                 {allSpeakers.map(s => {
-                  const selected = !isAddNew && renameOriginal === s
+                  const selected = !isAddNew && renameSpeakerId === s
                   const editing = selected && renameEditing
                   return (
                     <div
@@ -1053,7 +1079,14 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
                           }}
                         />
                       ) : (
-                        <span style={{ color: selected ? "#1a4480" : "#222", fontWeight: selected ? 600 : 400 }}>{s}</span>
+                        <>
+                          <span style={{ color: selected ? "#1a4480" : "#222", fontWeight: selected ? 600 : 400, whiteSpace: "nowrap" }}>{speakersById.get(s).name}</span>
+                          {nameCounts[speakersById.get(s).name] > 1 && (
+                            <span style={{ marginLeft: 8, color: "#999", fontSize: 11, fontStyle: "italic", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              “{speakersById.get(s).firstWords}…”
+                            </span>
+                          )}
+                        </>
                       )}
                     </div>
                   )
@@ -1091,7 +1124,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 <button
-                  onClick={() => editRow(renameOriginal)}
+                  onClick={() => editRow(renameSpeakerId)}
                   style={{ padding: "7px 16px", borderRadius: 4, border: "1px solid #b0b0b0", background: "white", cursor: "pointer", color: "#222", fontSize: 13 }}
                 >
                   Edit
