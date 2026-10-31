@@ -15,6 +15,36 @@ def em_dashes_to_double_hyphens(text: str) -> str:
     return re.sub(r"\s*(?:—|--)\s*", " -- ", text).rstrip()
 
 
+# "um", "uh" and stretched spellings ("umm", "uhh", "uhm"). Hyphenated words are
+# answers, not fillers, and are kept: "uh-huh" (yes), "uh-uh" (no), "um-hum".
+_FILLER = re.compile(r"(?<![\w'-])(?:um+|uh+|uhm+)(?![\w'-])", re.I)
+
+
+def remove_fillers(text: str) -> str:
+    """Drops "um" and "uh" with the commas around them ("hello, uh, my name is" ->
+    "hello my name is"), capitalizing the next word when a sentence started with one
+    ("Um, we were dating." -> "We were dating."). An utterance that was only fillers
+    ("Um.") becomes empty and is dropped by postprocess_blocks."""
+    while m := _FILLER.search(text):
+        before = text[:m.start()].rstrip()
+        after = text[m.end():].lstrip()
+        if before.endswith(","):
+            before = before[:-1].rstrip()
+        if after.startswith(","):
+            after = after[1:].lstrip()
+        if not before or before[-1] in ".?!":
+            # The filler was the whole sentence ("Um.") or led into a cut-off ("Um -- I")
+            after = re.sub(r"^(?:[.?!]+|--)\s*", "", after)
+            after = after[:1].upper() + after[1:]
+        elif before.endswith("--") and after.startswith("--"):
+            after = after[2:].lstrip()  # "I was -- um -- I was" -> "I was -- I was"
+        if not before or not after or after[0] in ",.?!;:":
+            text = before + after
+        else:
+            text = before + " " + after
+    return text
+
+
 # Single words that are repeated for emphasis or as conversational acknowledgment,
 # where court style keeps the comma ("very, very dark", "No, no", "Okay, okay").
 EMPHASIS_WORDS = {
@@ -118,6 +148,7 @@ def small_numbers_to_words(text: str) -> str:
 
 RULES = [
     em_dashes_to_double_hyphens,
+    remove_fillers,  # before repeats: "I, um, I went" -> "I I went" -> "I -- I went"
     repeats_to_double_hyphens,
     small_numbers_to_words,  # after repeats: digits are exempt from repeat-dashing ("2, 2"), words aren't
 ]
@@ -130,7 +161,11 @@ def postprocess_text(text: str) -> str:
 
 
 def postprocess_blocks(blocks: list) -> list:
-    return [
-        {**b, "text": postprocess_text(b["text"])} if b.get("type", "utterance") == "utterance" else b
-        for b in blocks
-    ]
+    out = []
+    for b in blocks:
+        if b.get("type", "utterance") == "utterance":
+            b = {**b, "text": postprocess_text(b["text"])}
+            if not b["text"]:
+                continue  # the utterance was nothing but fillers
+        out.append(b)
+    return out
