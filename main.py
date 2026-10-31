@@ -38,6 +38,10 @@ stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 AUDIO_BUCKET = "audio"
+STORAGE_MAX_BYTES = 50_000_000  # Supabase free-plan per-file limit
+# Mono courtroom audio loses nothing at 64 kbps, and ~29 MB/hour keeps a session under the storage limit
+MIXDOWN_BITRATE = "64k"
+UPLOAD_ATTEMPTS = 3
 DEFAULT_AUDIO_RETENTION_DAYS = 1825  # 5 years
 
 CREDIT_PACKS = {
@@ -322,7 +326,7 @@ def merge_audio_files(paths: list, output_path: str):
                   .filter('pan', 'mono|c0<' + '+'.join(f'c{c - 1}' for c in live))
                   .filter('volume', round(len(live) * gain, 4)))
     (stream
-     .output(output_path, acodec='libmp3lame', audio_bitrate='192k')
+     .output(output_path, acodec='libmp3lame', audio_bitrate=MIXDOWN_BITRATE)
      .run(overwrite_output=True, quiet=True))
     return channel_mix
 
@@ -367,6 +371,20 @@ def storage_upload(key: str, local_path: str):
             timeout=120,
         )
     resp.raise_for_status()
+
+
+def with_upload_retries(fn, *args):
+    """Large uploads sometimes drop mid-request ("Server disconnected without sending a
+    response"); retry dropped connections and server errors a few times before failing."""
+    for attempt in range(1, UPLOAD_ATTEMPTS + 1):
+        try:
+            return fn(*args)
+        except (httpx.TransportError, httpx.HTTPStatusError) as e:
+            retryable = not isinstance(e, httpx.HTTPStatusError) or e.response.status_code >= 500
+            if not retryable or attempt == UPLOAD_ATTEMPTS:
+                raise
+            print(f"{fn.__name__} failed ({e}), retrying ({attempt}/{UPLOAD_ATTEMPTS - 1})")
+            time.sleep(5 * attempt)
 
 
 def storage_sign_url(key: str, expires_in: int = 3600) -> str:
@@ -741,7 +759,11 @@ async def stripe_webhook(request: Request):
 
 def run_transcription(job_id: str, audio_path: str, storage_key: str, user_id: str, boost_words: list = []):
     try:
-        storage_upload(storage_key, audio_path)
+        size = os.path.getsize(audio_path)
+        if size > STORAGE_MAX_BYTES:
+            raise RuntimeError(f"the audio is {size / 1e6:.0f} MB after processing, over the "
+                               f"{STORAGE_MAX_BYTES / 1e6:.0f} MB storage limit")
+        with_upload_retries(storage_upload, storage_key, audio_path)
         db_update_audio_path(job_id, storage_key)
     except Exception as e:
         db_update_status(job_id, "error", f"Audio upload failed: {e}")
@@ -765,7 +787,8 @@ def run_transcription(job_id: str, audio_path: str, storage_key: str, user_id: s
             # ),
         )
         transcriber = aai.Transcriber()
-        transcript = transcriber.transcribe(audio_path, config=config)
+        audio_url = with_upload_retries(transcriber.upload_file, audio_path)
+        transcript = transcriber.transcribe(audio_url, config=config)
 
         if transcript.status == aai.TranscriptStatus.error:
             raise RuntimeError(transcript.error)
