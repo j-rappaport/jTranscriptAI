@@ -445,7 +445,7 @@ def run_retention_cleanup_loop():
 
 TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "templates", "Transcript.dotm")
 _W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-_ABBREV_RE = re.compile(r"\b(Mr|Mrs|Ms|Dr|Jr|Sr|vs|etc|No|St)\.  ", re.IGNORECASE)
+_ABBREV_RE = re.compile(r"\b(Mr|Mrs|Ms|Dr|Jr|Sr|vs|etc|No|St|[ap]\.m)\.  ", re.IGNORECASE)
 
 def _open_dotm():
     with open(TEMPLATE_PATH, "rb") as f:
@@ -465,7 +465,8 @@ def _open_dotm():
     return Document(buf)
 
 def _normalize(text):
-    text = re.sub(r"([.?])\s*", r"\1  ", text)
+    # Two spaces after a sentence end, placed after a closing quote ('."  ' and '?"  ')
+    text = re.sub(r'([.?!]["”]?)\s+', r"\1  ", text)
     text = _ABBREV_RE.sub(r"\1. ", text)
     return text.rstrip()
 
