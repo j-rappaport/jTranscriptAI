@@ -42,6 +42,7 @@ STORAGE_MAX_BYTES = 50_000_000  # Supabase free-plan per-file limit
 # Mono courtroom audio loses nothing at 64 kbps, and ~29 MB/hour keeps a session under the storage limit
 MIXDOWN_BITRATE = "64k"
 UPLOAD_ATTEMPTS = 3
+AUDIO_URL_TTL_SECONDS = 12 * 3600  # signed audio link for the Review page; long enough for a session
 DEFAULT_AUDIO_RETENTION_DAYS = 1825  # 5 years
 
 CREDIT_PACKS = {
@@ -132,6 +133,12 @@ def db_update_audio_path(job_id: str, audio_path: str):
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("UPDATE jobs SET audio_path=%s WHERE id=%s", (audio_path, job_id))
+
+
+def db_update_filename(job_id: str, filename: str):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE jobs SET filename=%s WHERE id=%s", (filename, job_id))
 
 
 def db_update_audio_meta(job_id: str, segment_map: list, channel_mix: list):
@@ -648,34 +655,40 @@ async def create_job(files: List[UploadFile] = File(...), word_boost: str = Form
     return {"job_id": job_id, "status": "pending"}
 
 
-@app.get("/jobs/{job_id}")
-def get_job(job_id: str, user: str = Depends(require_auth)):
+def get_owned_job(job_id: str, user: str) -> dict:
+    """The job, if it belongs to the signed-in user. Someone else's job is reported as
+    not found rather than forbidden, so job IDs can't be probed."""
     job = db_get_job(job_id)
-    if not job:
+    if not job or job.get("user_id") != user:
         raise HTTPException(status_code=404, detail="Job not found")
-    job["blocks"] = job.pop("utterances")
     return job
 
 
-@app.get("/jobs/{job_id}/audio")
-def get_audio(job_id: str):
-    job = db_get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    if not job["audio_path"]:
-        raise HTTPException(status_code=404, detail="Audio not available")
-    return RedirectResponse(storage_sign_url(job["audio_path"]))
+@app.get("/jobs/{job_id}")
+def get_job(job_id: str, user: str = Depends(require_auth)):
+    job = get_owned_job(job_id, user)
+    job["blocks"] = job.pop("utterances")
+    return job
+
 
 @app.get("/jobs")
 def get_all_jobs(user: str = Depends(require_auth)):
     return db_get_all_jobs(user)
 
 
+@app.patch("/jobs/{job_id}")
+def rename_job(job_id: str, body: dict, user: str = Depends(require_auth)):
+    get_owned_job(job_id, user)
+    filename = (body.get("filename") or "").strip()[:200]
+    if not filename:
+        raise HTTPException(status_code=400, detail="Name can't be empty")
+    db_update_filename(job_id, filename)
+    return {"ok": True, "filename": filename}
+
+
 @app.put("/jobs/{job_id}/blocks")
 def update_blocks(job_id: str, body: dict, user: str = Depends(require_auth)):
-    job = db_get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+    get_owned_job(job_id, user)
     version = db_update_blocks(job_id, body["blocks"], body.get("version"))
     if version is None:
         raise HTTPException(status_code=409, detail="The transcript was changed elsewhere. Reload to get the latest version.")
@@ -684,9 +697,7 @@ def update_blocks(job_id: str, body: dict, user: str = Depends(require_auth)):
 
 @app.get("/jobs/{job_id}/docx")
 def get_docx(job_id: str, user: str = Depends(require_auth)):
-    job = db_get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+    job = get_owned_job(job_id, user)
     blocks = job.get("utterances") or []
     base = os.path.splitext(job.get("filename", "transcript"))[0]
     buf = generate_docx(blocks)
@@ -699,10 +710,10 @@ def get_docx(job_id: str, user: str = Depends(require_auth)):
 
 @app.get("/jobs/{job_id}/audio-available")
 def audio_available(job_id: str, user: str = Depends(require_auth)):
-    job = db_get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    return {"available": bool(job["audio_path"])}
+    job = get_owned_job(job_id, user)
+    if not job["audio_path"]:
+        return {"available": False, "url": None}
+    return {"available": True, "url": storage_sign_url(job["audio_path"], AUDIO_URL_TTL_SECONDS)}
 
 
 @app.get("/credits")

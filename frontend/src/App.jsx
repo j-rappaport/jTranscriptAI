@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { ClerkProvider, useAuth, SignIn, UserButton } from "@clerk/clerk-react"
 import ReviewPage from "./ReviewPage"
 
@@ -169,6 +169,8 @@ function HomePage() {
   const [paymentNotice, setPaymentNotice] = useState(null)
   const [boostWords, setBoostWords] = useState(() => localStorage.getItem("jt_boost_words") ?? DEFAULT_BOOST_WORDS)
   const [vocabOpen, setVocabOpen] = useState(false)
+  const [renamingJob, setRenamingJob] = useState(null)  // { id, name } while a job name is being edited
+  const renameCancelledRef = useRef(false)
 
   useEffect(() => { localStorage.setItem("jt_boost_words", boostWords) }, [boostWords])
 
@@ -212,6 +214,29 @@ function HomePage() {
       setJobs(data)
     } catch (e) {
       console.error("Failed to fetch jobs", e)
+    }
+  }
+
+  async function saveJobName() {
+    if (!renamingJob) return
+    const { id, name } = renamingJob
+    setRenamingJob(null)
+    if (renameCancelledRef.current) { renameCancelledRef.current = false; return }
+    const filename = name.trim()
+    const job = jobs.find(j => j.id === id)
+    if (!filename || !job || filename === job.filename) return
+    setJobs(js => js.map(j => j.id === id ? { ...j, filename } : j))
+    try {
+      const headers = await authHeaders()
+      const res = await fetch(`${API}/jobs/${id}`, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ filename }),
+      })
+      if (!res.ok) throw new Error(res.status)
+    } catch (e) {
+      console.error("Failed to rename job", e)
+      setJobs(js => js.map(j => j.id === id ? { ...j, filename: job.filename } : j))
     }
   }
 
@@ -525,9 +550,31 @@ function HomePage() {
               borderBottom: i < jobs.length - 1 ? "1px solid #f0f0f0" : "none",
               background: i % 2 === 0 ? "white" : "#fafafa"
             }}>
-              <span style={{ fontSize: 13, color: "#222", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {job.filename}
-              </span>
+              {renamingJob?.id === job.id ? (
+                <input
+                  autoFocus
+                  value={renamingJob.name}
+                  onChange={e => setRenamingJob({ id: job.id, name: e.target.value })}
+                  onFocus={e => e.target.select()}
+                  onBlur={saveJobName}
+                  onKeyDown={e => {
+                    if (e.key === "Enter") e.target.blur()
+                    if (e.key === "Escape") { renameCancelledRef.current = true; e.target.blur() }
+                  }}
+                  style={{
+                    fontSize: 13, padding: "2px 6px", margin: "-3px 0", minWidth: 0,
+                    borderRadius: 3, border: "1.5px solid #1a4480", outline: "none", color: "#222"
+                  }}
+                />
+              ) : (
+                <span
+                  onDoubleClick={() => setRenamingJob({ id: job.id, name: job.filename })}
+                  title="Double-click to rename"
+                  style={{ fontSize: 13, color: "#222", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "text" }}
+                >
+                  {job.filename}
+                </span>
+              )}
               <span style={{ fontSize: 12, color: "#888" }}>{formatDuration(job.audio_duration_ms)}</span>
               <span style={{ fontSize: 12, color: "#888" }}>{formatDate(job.created_at)}</span>
               {job.status === "done"

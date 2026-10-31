@@ -416,6 +416,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   const originalBlocksRef = useRef(null)
   const [loading, setLoading] = useState(true)
   const [audioAvailable, setAudioAvailable] = useState(true)
+  const [audioUrl, setAudioUrl] = useState(null)  // signed storage link, fetched with auth
   const [renameTarget, setRenameTarget] = useState(null)
   const [renameSpeakerId, setRenameSpeakerId] = useState(null)
   const [renameValue, setRenameValue] = useState("")
@@ -568,7 +569,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
         })
       fetch(`${API}/jobs/${jobId}/audio-available`, { headers })
         .then(r => r.json())
-        .then(data => setAudioAvailable(data.available))
+        .then(data => { setAudioAvailable(data.available); setAudioUrl(data.url) })
     }
     load()
   }, [jobId])
@@ -933,7 +934,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   ? <audio
       ref={audioRef}
       controls
-      src={`${API}/jobs/${jobId}/audio`}
+      src={audioUrl}
       style={{ width: "100%" }}
     />
   : <div style={{ fontSize: 13, color: "#aaa", padding: "8px 0" }}>Audio not available</div>
