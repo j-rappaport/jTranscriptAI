@@ -436,6 +436,10 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   const historyRef = useRef({ past: [], future: [] })
   const burstRef = useRef(null)
   const burstTimerRef = useRef(null)
+  const versionRef = useRef(null)
+  const saveChainRef = useRef(Promise.resolve())
+  const staleRef = useRef(false)
+  const [stale, setStale] = useState(false)
   useEffect(() => { if (audioRef.current) audioRef.current.playbackRate = playbackRate }, [playbackRate])
   useEffect(() => {
     const el = audioRef.current
@@ -553,6 +557,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
             }
             migrated.push(b)
           }
+          versionRef.current = data.blocks_version
           setBlocks(migrated)
           if (changed) putBlocks(migrated)
           setJobFilename(data.filename ? data.filename.replace(/\.[^.]+$/, "") : jobId)
@@ -568,13 +573,25 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     load()
   }, [jobId])
 
-  async function putBlocks(updated) {
-    const headers = await authHeaders()
-    fetch(`${API}/jobs/${jobId}/blocks`, {
-      method: "PUT",
-      headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify({ blocks: updated }),
-    })
+  // Saves run one at a time, each sending the version it was based on. If the transcript
+  // changed elsewhere (another tab, a server-side fix), the server answers 409 and this
+  // tab stops saving rather than overwrite the newer version.
+  function putBlocks(updated) {
+    saveChainRef.current = saveChainRef.current.then(async () => {
+      if (staleRef.current) return
+      const headers = await authHeaders()
+      const res = await fetch(`${API}/jobs/${jobId}/blocks`, {
+        method: "PUT",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ blocks: updated, version: versionRef.current }),
+      })
+      if (res.status === 409) {
+        staleRef.current = true
+        setStale(true)
+      } else if (res.ok) {
+        versionRef.current = (await res.json()).version
+      }
+    }).catch(() => {})
   }
 
   const HISTORY_LIMIT = 50
@@ -988,6 +1005,19 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
           />
         ))}
       </div>
+
+      {stale && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, zIndex: 300,
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 12,
+          padding: "10px 16px", background: "#b50909", color: "white", fontSize: 13,
+        }}>
+          <span>This transcript was changed elsewhere, so your latest edits here weren't saved. Reload to continue with the newest version.</span>
+          <button onClick={() => window.location.reload()} style={{ padding: "5px 14px", borderRadius: 4, border: "none", background: "white", color: "#b50909", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
+            Reload
+          </button>
+        </div>
+      )}
 
       {renameTarget && (() => {
         // One row per speaker ID, in order of first appearance; names can repeat, so

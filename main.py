@@ -169,17 +169,24 @@ def db_update_done(job_id: str, blocks: list, original_blocks: list, duration_ms
 def db_get_job(job_id: str) -> dict:
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("SELECT * FROM jobs WHERE id=%s", (job_id,))
+            cur.execute("SELECT *, md5(utterances::text) AS blocks_version FROM jobs WHERE id=%s", (job_id,))
             row = cur.fetchone()
             return dict(row) if row else None
 
-def db_update_blocks(job_id: str, blocks: list):
+def db_update_blocks(job_id: str, blocks: list, base_version: str = None):
+    """Saves the editable transcript and returns its new version (an md5 of the stored
+    JSON). With base_version, saves only if the transcript is still at that version and
+    returns None otherwise, so a stale Review tab can't overwrite newer changes."""
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "UPDATE jobs SET utterances=%s WHERE id=%s",
-                (psycopg2.extras.Json(blocks), job_id)
-            )
+            sql = "UPDATE jobs SET utterances=%s WHERE id=%s"
+            params = [psycopg2.extras.Json(blocks), job_id]
+            if base_version is not None:
+                sql += " AND md5(utterances::text)=%s"
+                params.append(base_version)
+            cur.execute(sql + " RETURNING md5(utterances::text)", params)
+            row = cur.fetchone()
+            return row[0] if row else None
 
 
 def db_get_all_jobs(user_id: str) -> list:
@@ -669,8 +676,10 @@ def update_blocks(job_id: str, body: dict, user: str = Depends(require_auth)):
     job = db_get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    db_update_blocks(job_id, body["blocks"])
-    return {"ok": True}
+    version = db_update_blocks(job_id, body["blocks"], body.get("version"))
+    if version is None:
+        raise HTTPException(status_code=409, detail="The transcript was changed elsewhere. Reload to get the latest version.")
+    return {"ok": True, "version": version}
 
 
 @app.get("/jobs/{job_id}/docx")
