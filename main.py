@@ -535,14 +535,38 @@ def _preamble_line(info):
     except ValueError:
         pass
     try:
-        t = datetime.strptime(info.get("time") or "", "%H:%M")
-        parts.append(f"{t.hour % 12 or 12}:{t:%M} {'a.m.' if t.hour < 12 else 'p.m.'}")
+        parts.append(_clock(datetime.strptime(info.get("time") or "", "%H:%M")))
     except ValueError:
         pass
     return f"({', '.join(parts)})" if parts else None
 
 
-def generate_docx(blocks, info=None):
+def _clock(t):
+    return f"{t.hour % 12 or 12}:{t:%M} {'a.m.' if t.hour < 12 else 'p.m.'}"
+
+
+def _closing_lines(blocks, info, segment_map):
+    """The two closing lines: "(Conclusion of Grand Jury proceedings," /
+    "Volume 1, 10-8-26 at 12:20 p.m.)". The end time is the real clock time of the last
+    utterance, known for TRM recordings (segment_map); unknown parts are left as ___."""
+    info = info or {}
+    kind = "Grand Jury proceedings" if info.get("type") == "grand_jury" else "proceedings"
+    try:
+        d = datetime.strptime(info.get("date") or "", "%Y-%m-%d")
+        date = f"{d.month}-{d.day}-{d:%y}"
+    except ValueError:
+        date = "___"
+    time = "___"
+    end_ms = max((b.get("end_ms") or 0 for b in blocks if b.get("type", "utterance") == "utterance"), default=0)
+    if segment_map and end_ms:
+        seg = next((s for s in segment_map if end_ms <= s["end_ms"]), segment_map[-1])
+        # local_start_ms is local wall-clock time stored as if it were UTC
+        time = _clock(datetime.fromtimestamp((seg["local_start_ms"] + end_ms - seg["start_ms"]) / 1000, timezone.utc))
+    volume = f"Volume {info['volume']}, " if info.get("volume") else ""
+    return [f"(Conclusion of {kind},", f"{volume}{date} at {time})"]
+
+
+def generate_docx(blocks, info=None, segment_map=None):
     doc = _open_dotm()
 
     # Keep first 4 preamble paragraphs, drop the rest
@@ -617,6 +641,9 @@ def generate_docx(blocks, info=None):
             for line in lines:
                 p = _add_para(doc, line)
                 p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    for line in ["* * *", *_closing_lines(blocks, info, segment_map)]:
+        _add_para(doc, line).alignment = WD_ALIGN_PARAGRAPH.CENTER
 
     buf = io.BytesIO()
     doc.save(buf)
@@ -761,7 +788,7 @@ def get_docx(job_id: str, user: str = Depends(require_auth)):
     job = get_owned_job(job_id, user)
     blocks = job.get("utterances") or []
     base = os.path.splitext(job.get("filename", "transcript"))[0]
-    buf = generate_docx(blocks, job.get("info"))
+    buf = generate_docx(blocks, job.get("info"), job.get("segment_map"))
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
