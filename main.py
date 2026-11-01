@@ -486,7 +486,7 @@ def _open_dotm():
 
 def _normalize(text):
     # Two spaces after a sentence end, placed after a closing quote ('."  ' and '?"  ')
-    text = re.sub(r'([.?!]["”]?)\s+', r"\1  ", text)
+    text = re.sub(r'([.?!]["”]?) +', r"\1  ", text)  # spaces only: a "\n" (Shift+Enter) stays a line break
     text = _ABBREV_RE.sub(r"\1. ", text)
     return text.rstrip()
 
@@ -539,6 +539,66 @@ def _preamble_line(info):
     except ValueError:
         pass
     return f"({', '.join(parts)})" if parts else None
+
+
+# Utterances become paragraphs: each "\n" (Shift+Enter on the Review page) starts a new
+# one, and a long stretch is split further, only at a sentence end, aiming for paragraphs
+# of about PARAGRAPH_LINES lines. Up to MAX_PARAGRAPH_LINES stays whole, and a split never
+# leaves fewer than MIN_FINAL_PARAGRAPH_LINES behind, so 7 lines stay one paragraph and
+# 8 become about 5 + 3. Lines are counted by simulating Word's wrapping, which is exact
+# in a monospaced font (checked against Word on full transcripts).
+# The template's 6" text width holds 60 characters of 12pt Courier New, but Word wraps a
+# word that would end exactly at the margin.
+LINE_CHARS = 59
+TAB_CHARS = 5    # the template's 0.5" default tab stops
+PARAGRAPH_LINES = 5
+MAX_PARAGRAPH_LINES = 7
+MIN_FINAL_PARAGRAPH_LINES = 3
+# A sentence end, after _normalize: it puts two spaces after ". ? !" (and a closing quote),
+# but one after abbreviations like "Mr." and "p.m.". Never a "--" or mid-sentence.
+_SENTENCE_BREAK = re.compile(r'[.?!]["”]?  ')
+
+
+def _line_count(prefix, text):
+    """How many lines Word wraps text to after prefix (whose tabs advance to the next tab stop)."""
+    col = 0
+    for ch in prefix:
+        col = (col // TAB_CHARS + 1) * TAB_CHARS if ch == "\t" else col + 1
+    lines = 1
+    for token in re.findall(r"[^ ]+ *", text):
+        if col > 0 and col + len(token.rstrip(" ")) > LINE_CHARS:
+            lines += 1
+            col = 0
+        col += len(token)  # trailing spaces may run past the margin, as in Word
+    return lines
+
+
+def _utterance_paragraphs(prefix, text):
+    """An utterance as paragraph strings; continuation paragraphs start with a tab."""
+    paragraphs = []
+    for chunk in (c.strip() for c in text.split("\n")):
+        if chunk:
+            paragraphs += _split_at_sentences(prefix, chunk)
+            prefix = "\t"
+    return paragraphs or [prefix]
+
+
+def _split_at_sentences(prefix, text):
+    paragraphs = []
+    while _line_count(prefix, text) > MAX_PARAGRAPH_LINES:
+        best = None  # (distance from PARAGRAPH_LINES, head, rest)
+        for m in _SENTENCE_BREAK.finditer(text):
+            head, rest = text[:m.end()].rstrip(), text[m.end():]
+            head_lines = _line_count(prefix, head)
+            if head_lines > MAX_PARAGRAPH_LINES or _line_count("\t", rest) < MIN_FINAL_PARAGRAPH_LINES:
+                break
+            if best is None or abs(head_lines - PARAGRAPH_LINES) < best[0]:
+                best = (abs(head_lines - PARAGRAPH_LINES), head, rest)
+        if best is None:
+            break  # no sentence end to split at: keep it whole rather than cut mid-sentence
+        paragraphs.append(prefix + best[1])
+        prefix, text = "\t", best[2]
+    return paragraphs + [prefix + text]
 
 
 def _clock(t):
@@ -604,8 +664,9 @@ def generate_docx(blocks, info=None, segment_map=None):
             text = _normalize(block.get("text", ""))
             if role == "Q" and prev_role == "":
                 _add_para(doc, f"BY {block['speaker']}:")
-            line = f"\t{role}\t{text}" if role else f"\t\t{block['speaker']}:  {text}"
-            _add_para(doc, line)
+            prefix = f"\t{role}\t" if role else f"\t\t{block['speaker']}:  "
+            for para in _utterance_paragraphs(prefix, text):
+                _add_para(doc, para)
             prev_role = role
             continue
 
