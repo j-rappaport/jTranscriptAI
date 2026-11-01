@@ -141,6 +141,12 @@ def db_update_filename(job_id: str, filename: str):
             cur.execute("UPDATE jobs SET filename=%s WHERE id=%s", (filename, job_id))
 
 
+def db_update_info(job_id: str, info: dict):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE jobs SET info=%s WHERE id=%s", (psycopg2.extras.Json(info), job_id))
+
+
 def db_update_audio_meta(job_id: str, segment_map: list, channel_mix: list):
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -515,7 +521,28 @@ def _add_para(doc, text=""):
         run.font.size = Pt(12)
     return p
 
-def generate_docx(blocks):
+def _preamble_line(info):
+    """The template's "(Volume X, XXday, XX, XX, XXXX, X:XX a.m.)" line from the transcript
+    info: "(Volume 1, Monday, March 15, 2021, 9:36 a.m.)". Unspecified parts are left out;
+    None if nothing is known, so the placeholder stays for filling in by hand."""
+    info = info or {}
+    parts = []
+    if info.get("volume"):
+        parts.append(f"Volume {info['volume']}")
+    try:
+        d = datetime.strptime(info.get("date") or "", "%Y-%m-%d")
+        parts.append(f"{d:%A}, {d:%B} {d.day}, {d.year}")
+    except ValueError:
+        pass
+    try:
+        t = datetime.strptime(info.get("time") or "", "%H:%M")
+        parts.append(f"{t.hour % 12 or 12}:{t:%M} {'a.m.' if t.hour < 12 else 'p.m.'}")
+    except ValueError:
+        pass
+    return f"({', '.join(parts)})" if parts else None
+
+
+def generate_docx(blocks, info=None):
     doc = _open_dotm()
 
     # Keep first 4 preamble paragraphs, drop the rest
@@ -523,6 +550,14 @@ def generate_docx(blocks):
     paras = body.findall(f"{{{_W_NS}}}p")
     for p in paras[4:]:
         body.remove(p)
+
+    preamble = _preamble_line(info)
+    for p in doc.paragraphs[:4]:
+        if preamble and p.text.startswith("(Volume") and p.runs:
+            # Keep the first run's formatting; the placeholder may be split across runs
+            p.runs[0].text = preamble
+            for run in p.runs[1:]:
+                run._r.getparent().remove(run._r)
 
     roles = _compute_roles(blocks)
     prev_role = ""
@@ -568,7 +603,7 @@ def generate_docx(blocks):
                 run.font.size = Pt(12)
                 run.underline = True
 
-        elif btype in ("pause_in_proceedings", "whispered_discussion", "exhibit_received"):
+        elif btype in ("pause_in_proceedings", "recess_taken", "whispered_discussion", "exhibit_received"):
             for line in lines:
                 p = _add_para(doc, line)
                 p.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -676,14 +711,30 @@ def get_all_jobs(user: str = Depends(require_auth)):
     return db_get_all_jobs(user)
 
 
+# Transcript info filled in on the Review page; blank fields are stored as null (unspecified)
+JOB_INFO_FIELDS = ("date", "time", "type", "volume", "gj_number")
+JOB_TYPES = ("court_proceeding", "grand_jury", "interview")
+
+
 @app.patch("/jobs/{job_id}")
-def rename_job(job_id: str, body: dict, user: str = Depends(require_auth)):
+def update_job(job_id: str, body: dict, user: str = Depends(require_auth)):
+    """Renames a job ({"filename"}) and/or saves its transcript info ({"info"})."""
     get_owned_job(job_id, user)
-    filename = (body.get("filename") or "").strip()[:200]
-    if not filename:
-        raise HTTPException(status_code=400, detail="Name can't be empty")
-    db_update_filename(job_id, filename)
-    return {"ok": True, "filename": filename}
+    result = {"ok": True}
+    if "filename" in body:
+        filename = (body.get("filename") or "").strip()[:200]
+        if not filename:
+            raise HTTPException(status_code=400, detail="Name can't be empty")
+        db_update_filename(job_id, filename)
+        result["filename"] = filename
+    if "info" in body:
+        raw = body.get("info") or {}
+        info = {k: (str(raw[k]).strip()[:100] or None) if raw.get(k) is not None else None for k in JOB_INFO_FIELDS}
+        if info["type"] not in (None, *JOB_TYPES):
+            raise HTTPException(status_code=400, detail="Unknown transcript type")
+        db_update_info(job_id, info)
+        result["info"] = info
+    return result
 
 
 @app.put("/jobs/{job_id}/blocks")
@@ -700,7 +751,7 @@ def get_docx(job_id: str, user: str = Depends(require_auth)):
     job = get_owned_job(job_id, user)
     blocks = job.get("utterances") or []
     base = os.path.splitext(job.get("filename", "transcript"))[0]
-    buf = generate_docx(blocks)
+    buf = generate_docx(blocks, job.get("info"))
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",

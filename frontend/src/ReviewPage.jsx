@@ -23,6 +23,69 @@ const SPEED_PRESETS = [0.5, 0.75, 1, 1.25, 1.5]
 
 // Meta blocks are free text, edited directly on the Review page; `defaultText` is only the
 // starting point on insert. The type just controls .docx formatting (see main.py's generate_docx).
+// Transcript info, filled in on the card above the transcript. Blank fields are null
+// (unspecified). Use it to tailor the page, e.g. a META_BLOCKS defaultText can be a
+// function of info.
+const TRANSCRIPT_TYPES = {
+  court_proceeding: "Court proceeding",
+  grand_jury: "Grand jury",
+  interview: "Interview",
+}
+const EMPTY_INFO = { date: null, time: null, type: null, volume: null, gj_number: null }
+
+// Guesses for a job whose info hasn't been filled in: TRM recordings carry their real
+// local start time (segment_map), and names like "GRAND JURY 2" or "GJ 2--Pete" mean a grand jury.
+function guessInfo(filename, segmentMap) {
+  const info = { ...EMPTY_INFO, type: "court_proceeding" }
+  if (segmentMap?.length) {
+    const iso = new Date(segmentMap[0].local_start_ms).toISOString()  // local wall-clock time, stored as UTC
+    info.date = iso.slice(0, 10)
+    info.time = iso.slice(11, 16)
+  }
+  const gj = (filename || "").match(/\b(?:grand\s+jury|gj)\b\s*(?:no\.?\s*)?(\d+)?/i)
+  if (gj) {
+    info.type = "grand_jury"
+    info.gj_number = gj[1] ?? null
+  }
+  return info
+}
+
+// defaultText is a string, or a function of the transcript info returning one
+function metaDefaultText(type, info) {
+  const d = META_BLOCKS[type].defaultText
+  return typeof d === "function" ? d(info) : d
+}
+
+const INFO_LABEL_STYLE = { fontSize: 11, fontWeight: 500, letterSpacing: "0.07em", textTransform: "uppercase", color: "#aaa" }
+const INFO_INPUT_STYLE = { fontSize: 13, padding: "4px 8px", border: "1px solid #c9c9c9", borderRadius: 3, color: "#222", background: "white", fontFamily: "inherit" }
+
+function TranscriptInfo({ info, onChange }) {
+  const field = (label, input) => (
+    <label style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+      <span style={INFO_LABEL_STYLE}>{label}</span>
+      {input}
+    </label>
+  )
+  const text = (key, width) => (
+    <input value={info[key] ?? ""} placeholder="Unspecified" onChange={e => onChange(key, e.target.value)}
+      style={{ ...INFO_INPUT_STYLE, width }} />
+  )
+  return (
+    <div data-info-panel style={{ background: "white", border: "1px solid #c9c9c9", borderRadius: 4, padding: "10px 16px", marginBottom: 12, display: "flex", flexWrap: "wrap", gap: "10px 20px", alignItems: "flex-end" }}>
+      {field("Date", <input type="date" value={info.date ?? ""} onChange={e => onChange("date", e.target.value)} style={INFO_INPUT_STYLE} />)}
+      {field("Time", <input type="time" value={info.time ?? ""} onChange={e => onChange("time", e.target.value)} style={INFO_INPUT_STYLE} />)}
+      {field("Type", (
+        <select value={info.type ?? ""} onChange={e => onChange("type", e.target.value)} style={INFO_INPUT_STYLE}>
+          <option value="">Unspecified</option>
+          {Object.entries(TRANSCRIPT_TYPES).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+        </select>
+      ))}
+      {field("Volume", text("volume", 90))}
+      {field("Grand Jury No.", text("gj_number", 90))}
+    </div>
+  )
+}
+
 // Witness blocks: the first line is the witness name (centered + underlined in the .docx).
 const META_BLOCKS = {
   witness_sworn: {
@@ -36,6 +99,10 @@ const META_BLOCKS = {
   pause_in_proceedings: {
     label: "Pause in Proceedings",
     defaultText: "(Pause in proceedings, ___ - ___)",
+  },
+  recess_taken: {
+    label: "Recess Taken",
+    defaultText: "(Recess taken, ___ - ___)",
   },
   whispered_discussion: {
     label: "Whispered Discussion",
@@ -441,6 +508,9 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   const saveChainRef = useRef(Promise.resolve())
   const staleRef = useRef(false)
   const [stale, setStale] = useState(false)
+  const [info, setInfo] = useState(EMPTY_INFO)
+  const infoRef = useRef(EMPTY_INFO)
+  const infoSaveTimerRef = useRef(null)
   useEffect(() => { if (audioRef.current) audioRef.current.playbackRate = playbackRate }, [playbackRate])
   useEffect(() => {
     const el = audioRef.current
@@ -476,6 +546,8 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
         return
       }
       if (renameTargetRef.current) return
+      // The info fields are ordinary form inputs: Tab moves between them, Ctrl+Z undoes typing
+      if (e.target.closest?.("[data-info-panel]")) return
       if (e.key === "F2") {
         e.preventDefault()
         const idx = selectedIndexRef.current
@@ -562,6 +634,9 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
           setBlocks(migrated)
           if (changed) putBlocks(migrated)
           setJobFilename(data.filename ? data.filename.replace(/\.[^.]+$/, "") : jobId)
+          const loadedInfo = data.info ?? guessInfo(data.filename, data.segment_map)
+          infoRef.current = loadedInfo
+          setInfo(loadedInfo)
           setSegmentMap(data.segment_map || null)
           setChannelMix(data.channel_mix || null)
           originalBlocksRef.current = data.original_utterances || null
@@ -573,6 +648,24 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     }
     load()
   }, [jobId])
+
+  function updateInfo(key, value) {
+    const next = { ...infoRef.current, [key]: value === "" ? null : value }
+    infoRef.current = next
+    setInfo(next)
+    if (infoSaveTimerRef.current) clearTimeout(infoSaveTimerRef.current)
+    infoSaveTimerRef.current = setTimeout(saveInfoNow, 600)
+  }
+
+  async function saveInfoNow() {
+    if (infoSaveTimerRef.current) { clearTimeout(infoSaveTimerRef.current); infoSaveTimerRef.current = null }
+    const headers = await authHeaders()
+    await fetch(`${API}/jobs/${jobId}`, {
+      method: "PATCH",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ info: infoRef.current }),
+    }).catch(() => {})
+  }
 
   // Saves run one at a time, each sending the version it was based on. If the transcript
   // changed elsewhere (another tab, a server-side fix), the server answers 409 and this
@@ -792,7 +885,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     recordHistory(false)
     let newBlock
     if (META_BLOCKS[type]) {
-      newBlock = { type, text: META_BLOCKS[type].defaultText, start_ms: cur[afterIndex]?.end_ms ?? 0, end_ms: cur[afterIndex]?.end_ms ?? 0 }
+      newBlock = { type, text: metaDefaultText(type, infoRef.current), start_ms: cur[afterIndex]?.end_ms ?? 0, end_ms: cur[afterIndex]?.end_ms ?? 0 }
     } else {
       newBlock = { type: "utterance", ...unknownSpeaker(cur), text: "", start_ms: cur[afterIndex]?.end_ms ?? 0, end_ms: cur[afterIndex]?.end_ms ?? 0 }
     }
@@ -834,6 +927,10 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   }
 
   async function saveDocx() {
+    // The .docx is built from what's saved: flush pending edits, and save the info even if
+    // it's still the unsaved guess, since its date/time/volume fill the preamble
+    saveBlocksNow()
+    await Promise.all([saveChainRef.current, saveInfoNow()])
     const headers = await authHeaders()
     const res = await fetch(`${API}/jobs/${jobId}/docx`, { headers })
     if (!res.ok) { alert("Failed to generate .docx"); return }
@@ -963,6 +1060,8 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
           </div>
         )}
       </div>
+
+      <TranscriptInfo info={info} onChange={updateInfo} />
 
       <div style={{ background: "white", border: "1px solid #c9c9c9", borderRadius: 4, overflow: "hidden" }}>
         <div style={{
