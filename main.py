@@ -551,13 +551,23 @@ def generate_docx(blocks, info=None):
     for p in paras[4:]:
         body.remove(p)
 
+    def set_text(p, text):
+        # Keep the first run's formatting; template text may be split across runs
+        p.runs[0].text = text
+        for run in p.runs[1:]:
+            run._r.getparent().remove(run._r)
+
     preamble = _preamble_line(info)
+    grand_jury = (info or {}).get("type") == "grand_jury"
+    gj_number = (info or {}).get("gj_number")
+    grand_jury_line = f"held before Grand Jury No. {gj_number}:)" if gj_number else "held before Grand Jury:)"
     for p in doc.paragraphs[:4]:
-        if preamble and p.text.startswith("(Volume") and p.runs:
-            # Keep the first run's formatting; the placeholder may be split across runs
-            p.runs[0].text = preamble
-            for run in p.runs[1:]:
-                run._r.getparent().remove(run._r)
+        if not p.runs:
+            continue
+        if preamble and p.text.startswith("(Volume"):
+            set_text(p, preamble)
+        elif grand_jury and p.text.strip() == "held in open court:)":
+            set_text(p, grand_jury_line)
 
     roles = _compute_roles(blocks)
     prev_role = ""

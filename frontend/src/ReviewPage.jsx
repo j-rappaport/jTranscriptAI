@@ -90,11 +90,10 @@ function TranscriptInfo({ info, onChange }) {
 const META_BLOCKS = {
   witness_sworn: {
     label: "Witness Sworn",
-    defaultText: "______\nWas thereupon called as a witness on behalf of the ____; and, having been first duly sworn, was examined and testified as follows:",
-  },
-  witness_sworn_gj: {
-    label: "Witness Sworn (GJ)",
-    defaultText: "______\nWas thereupon called as a witness; and, having been first duly sworn, was examined and testified as follows:",
+    // Before a grand jury a witness isn't called on behalf of a party
+    defaultText: info => info.type === "grand_jury"
+      ? "______\nWas thereupon called as a witness; and, having been first duly sworn, was examined and testified as follows:"
+      : "______\nWas thereupon called as a witness on behalf of the ____; and, having been first duly sworn, was examined and testified as follows:",
   },
   pause_in_proceedings: {
     label: "Pause in Proceedings",
@@ -622,6 +621,8 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
           for (const raw of data.blocks) {
             let b = !raw.type ? { ...raw, type: "utterance" } : raw
             if (b.type === "qa_toggle") { qaOn = !qaOn; changed = true; continue }
+            // The separate GJ witness block was folded into Witness Sworn (its text follows the info type)
+            if (b.type === "witness_sworn_gj") { b = { ...b, type: "witness_sworn" }; changed = true }
             if (b.type === "utterance" && qaOn) b = { ...b, qa: true }
             // Older jobs identified speakers by name only: give each distinct name an ID
             if (b.type === "utterance" && !b.speaker_id) {
