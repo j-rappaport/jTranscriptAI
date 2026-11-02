@@ -29,7 +29,7 @@ import httpx
 from jose import jwt as jose_jwt, JWTError
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
-from postprocess import postprocess_blocks
+from postprocess import postprocess_blocks, postprocess_text, OPTIONAL_RULES
 
 load_dotenv()
 
@@ -863,6 +863,19 @@ def audio_available(job_id: str, user: str = Depends(require_auth)):
     if not job["audio_path"]:
         return {"available": False, "url": None}
     return {"available": True, "url": storage_sign_url(job["audio_path"], AUDIO_URL_TTL_SECONDS)}
+
+
+@app.post("/postprocess/{rule}")
+def run_optional_postprocessing(rule: str, body: dict, user: str = Depends(require_auth)):
+    """Optional post-processing: applies one rule to the blocks sent and returns them
+    unsaved, so the Review page can apply the result as an ordinary, undoable edit."""
+    if rule not in OPTIONAL_RULES:
+        raise HTTPException(status_code=404, detail="Unknown post-processing rule")
+    rules = [OPTIONAL_RULES[rule]]
+    blocks = body.get("blocks") or []
+    changed = sum(1 for b in blocks if b.get("type", "utterance") == "utterance"
+                  and postprocess_text(b.get("text", ""), rules) != b.get("text", ""))
+    return {"blocks": postprocess_blocks(blocks, rules), "changed": changed}
 
 
 @app.get("/credits")

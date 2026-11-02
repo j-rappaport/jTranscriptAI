@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useMemo, Fragment } from "react"
 import { BrandLogo } from "./App"
 
 const API = import.meta.env.VITE_API_URL
@@ -59,7 +59,68 @@ function metaDefaultText(type, info) {
 const INFO_LABEL_STYLE = { fontSize: 11, fontWeight: 500, letterSpacing: "0.07em", textTransform: "uppercase", color: "#aaa" }
 const INFO_INPUT_STYLE = { fontSize: 13, padding: "4px 8px", border: "1px solid #c9c9c9", borderRadius: 3, color: "#222", background: "white", fontFamily: "inherit" }
 
-function TranscriptInfo({ info, onChange }) {
+// Optional post-processing: rules that run only on demand (OPTIONAL_RULES in postprocess.py),
+// one button each in the info card. confirm() is the warning shown before applying.
+const OPTIONAL_POSTPROCESSING = [
+  {
+    rule: "remove_fillers",
+    label: "Remove fillers",
+    confirm: () => `Remove fillers ("um", "uh")?`,
+  },
+]
+
+// User macros: typing a trigger then Space in the transcript expands it ("ind" -> "(indiscernible)").
+// Triggers are single words (no spaces or . , ? !), matched ignoring case; each user has their own list.
+function MacroEditor({ macros, onSave, onClose }) {
+  const [rows, setRows] = useState(() => macros.length ? macros : [{ trigger: "", expansion: "" }])
+  const update = (i, key, value) => setRows(rs => rs.map((r, j) => j === i ? { ...r, [key]: value } : r))
+  const cleaned = rows
+    .map(r => ({ trigger: r.trigger.replace(/[\s.,?!]+/g, ""), expansion: r.expansion }))
+    .filter(r => r.trigger && r.expansion)
+  const triggers = cleaned.map(r => r.trigger.toLowerCase())
+  const duplicate = triggers.find((t, i) => triggers.indexOf(t) !== i)
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }} onClick={onClose}>
+      <div data-plain-keys onClick={e => e.stopPropagation()} onKeyDown={e => { if (e.key === "Escape") onClose() }}
+        style={{ background: "white", borderRadius: 4, padding: 24, width: 520, maxWidth: "calc(100vw - 32px)", maxHeight: "80vh", overflowY: "auto", boxShadow: "0 8px 32px rgba(0,0,0,0.18)" }}>
+        <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 4, color: "#111" }}>User macros</div>
+        <div style={{ fontSize: 12, color: "#888", marginBottom: 16 }}>Type the short form, then Space or . , ? ! to insert the full text.</div>
+        <div style={{ display: "grid", gridTemplateColumns: "110px 1fr 28px", gap: "6px 8px", alignItems: "center" }}>
+          <span style={INFO_LABEL_STYLE}>Type</span>
+          <span style={INFO_LABEL_STYLE}>Inserts</span>
+          <span />
+          {rows.map((r, i) => (
+            <Fragment key={i}>
+              <input value={r.trigger} placeholder="ind" autoFocus={i === rows.length - 1 && !r.trigger}
+                onChange={e => update(i, "trigger", e.target.value.replace(/[\s.,?!]+/g, ""))} style={INFO_INPUT_STYLE} />
+              <input value={r.expansion} placeholder="(indiscernible)"
+                onChange={e => update(i, "expansion", e.target.value)} style={INFO_INPUT_STYLE} />
+              <button onClick={() => setRows(rs => rs.filter((_, j) => j !== i))} title="Delete macro"
+                style={{ border: "none", background: "none", color: "#aaa", cursor: "pointer", fontSize: 16 }}>×</button>
+            </Fragment>
+          ))}
+        </div>
+        <button onClick={() => setRows(rs => [...rs, { trigger: "", expansion: "" }])}
+          style={{ marginTop: 10, fontSize: 12, padding: "4px 10px", borderRadius: 3, border: "1px solid #b0b0b0", background: "white", color: "#555", cursor: "pointer" }}>
+          + Add macro
+        </button>
+        {duplicate && <div style={{ marginTop: 10, fontSize: 12, color: "#b50909" }}>"{duplicate}" is used twice.</div>}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 20 }}>
+          <button onClick={onClose} style={{ padding: "7px 16px", borderRadius: 4, border: "1px solid #b0b0b0", background: "white", cursor: "pointer", color: "#222", fontSize: 13 }}>
+            Cancel
+          </button>
+          <button onClick={() => onSave(cleaned)} disabled={!!duplicate}
+            style={{ padding: "7px 16px", borderRadius: 4, border: "none", background: duplicate ? "#9aa8bd" : "#1a4480", color: "white", cursor: duplicate ? "default" : "pointer", fontSize: 13 }}>
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function TranscriptInfo({ info, onChange, onRunOptional }) {
   const field = (label, input) => (
     <label style={{ display: "flex", flexDirection: "column", gap: 3 }}>
       <span style={INFO_LABEL_STYLE}>{label}</span>
@@ -71,7 +132,7 @@ function TranscriptInfo({ info, onChange }) {
       style={{ ...INFO_INPUT_STYLE, width }} />
   )
   return (
-    <div data-info-panel style={{ background: "white", border: "1px solid #c9c9c9", borderRadius: 4, padding: "10px 16px", marginBottom: 12, display: "flex", flexWrap: "wrap", gap: "10px 20px", alignItems: "flex-end" }}>
+    <div data-plain-keys style={{ background: "white", border: "1px solid #c9c9c9", borderRadius: 4, padding: "10px 16px", marginBottom: 12, display: "flex", flexWrap: "wrap", gap: "10px 20px", alignItems: "flex-end" }}>
       {field("Date", <input type="date" value={info.date ?? ""} onChange={e => onChange("date", e.target.value)} style={INFO_INPUT_STYLE} />)}
       {field("Time", <input type="time" value={info.time ?? ""} onChange={e => onChange("time", e.target.value)} style={INFO_INPUT_STYLE} />)}
       {field("Type", (
@@ -82,6 +143,13 @@ function TranscriptInfo({ info, onChange }) {
       ))}
       {field("Volume", text("volume", 90))}
       {field("Grand Jury No.", text("gj_number", 90))}
+      <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+        {OPTIONAL_POSTPROCESSING.map(p => (
+          <button key={p.rule} onClick={() => onRunOptional(p)} style={{ ...INFO_INPUT_STYLE, cursor: "pointer", color: "#1a4480", borderColor: "#1a4480" }}>
+            {p.label}
+          </button>
+        ))}
+      </div>
     </div>
   )
 }
@@ -249,7 +317,9 @@ function computeBlockDisplay(blocks) {
   return { roles, sectionIndices }
 }
 
-function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onMergeIntoPrevious, onFocusNext, onFocusPrev, onSelect, textareaRef }) {
+const MACRO_TRIGGER_KEYS = [" ", ".", ",", "?", "!"]
+
+function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onMergeIntoPrevious, onFocusNext, onFocusPrev, onSelect, textareaRef, macros }) {
   const mirrorRef = useRef(null)
   const measureRef = useRef(null)
 
@@ -295,6 +365,22 @@ function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onM
         onBlur={onTextBlur}
         onFocus={onSelect}
         onKeyDown={e => {
+          if (MACRO_TRIGGER_KEYS.includes(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey && macros?.size) {
+            // User macros: the word just typed expands when Space, a period or a comma is
+            // typed after it ("ind," -> "(indiscernible),"), keeping the key that was typed
+            const ta = e.target
+            const { selectionStart: s, selectionEnd: en } = ta
+            const word = s === en ? ta.value.slice(0, s).match(/(?:^|\s)(\S+)$/)?.[1] : null
+            const expansion = word && macros.get(word.toLowerCase())
+            if (expansion) {
+              e.preventDefault()
+              const start = s - word.length
+              const caret = start + expansion.length + 1
+              onTextChange(ta.value.slice(0, start) + expansion + e.key + ta.value.slice(s))
+              requestAnimationFrame(() => ta.setSelectionRange(caret, caret))
+              return
+            }
+          }
           if (e.key === "Enter" && !e.shiftKey && onSplitHere) {
             e.preventDefault()
             const cursor = e.target.selectionStart
@@ -333,7 +419,7 @@ function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onM
   )
 }
 
-function BlockRow({ block, index, role, sectionIndex, isSelected, onSelect, onTextChange, onTextBlur, onRenameOne, onSplitHere, onMergeIntoPrevious, onFocusNext, onFocusPrev, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete, onToggleQa, segmentMap, textareaRef }) {
+function BlockRow({ block, index, role, sectionIndex, isSelected, onSelect, onTextChange, onTextBlur, onRenameOne, onSplitHere, onMergeIntoPrevious, onFocusNext, onFocusPrev, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete, onToggleQa, segmentMap, textareaRef, macros }) {
   const rowBg = isSelected ? "#dcfce7" : (sectionIndex % 2 === 0 ? "white" : "#fafafa")
 
   const rowStyle = {
@@ -397,6 +483,7 @@ function BlockRow({ block, index, role, sectionIndex, isSelected, onSelect, onTe
           <UtteranceText
             index={index}
             text={block.text ?? ""}
+            macros={macros}
             onTextChange={value => onTextChange(index, value)}
             onTextBlur={onTextBlur}
             onFocusNext={onFocusNext}
@@ -460,6 +547,7 @@ function BlockRow({ block, index, role, sectionIndex, isSelected, onSelect, onTe
         <UtteranceText
           index={index}
           text={block.text}
+          macros={macros}
           onTextChange={value => onTextChange(index, value)}
           onTextBlur={onTextBlur}
           onSplitHere={onSplitHere}
@@ -507,6 +595,9 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   const saveChainRef = useRef(Promise.resolve())
   const staleRef = useRef(false)
   const [stale, setStale] = useState(false)
+  const [macros, setMacros] = useState([])  // [{ trigger, expansion }], the user's own, from /settings
+  const [macrosOpen, setMacrosOpen] = useState(false)
+  const macroMap = useMemo(() => new Map(macros.map(m => [m.trigger.toLowerCase(), m.expansion])), [macros])
   const [info, setInfo] = useState(EMPTY_INFO)
   const infoRef = useRef(EMPTY_INFO)
   const infoSaveTimerRef = useRef(null)
@@ -545,8 +636,8 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
         return
       }
       if (renameTargetRef.current) return
-      // The info fields are ordinary form inputs: Tab moves between them, Ctrl+Z undoes typing
-      if (e.target.closest?.("[data-info-panel]")) return
+      // Form areas (info card, macro editor) keep normal keys: Tab moves between fields, Ctrl+Z undoes typing
+      if (e.target.closest?.("[data-plain-keys]")) return
       if (e.key === "F2") {
         e.preventDefault()
         const idx = selectedIndexRef.current
@@ -646,9 +737,25 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
       fetch(`${API}/jobs/${jobId}/audio-available`, { headers })
         .then(r => r.json())
         .then(data => { setAudioAvailable(data.available); setAudioUrl(data.url) })
+      fetch(`${API}/settings`, { headers })
+        .then(r => r.json())
+        .then(settings => setMacros(settings.macros || []))
+        .catch(() => {})
     }
     load()
   }, [jobId])
+
+  async function saveMacros(list) {
+    setMacros(list)
+    setMacrosOpen(false)
+    const headers = await authHeaders()
+    fetch(`${API}/settings`, {
+      method: "PUT",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ macros: list }),
+    }).then(r => { if (!r.ok) throw new Error(r.status) })
+      .catch(() => alert("Failed to save macros"))
+  }
 
   function updateInfo(key, value) {
     const next = { ...infoRef.current, [key]: value === "" ? null : value }
@@ -656,6 +763,25 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     setInfo(next)
     if (infoSaveTimerRef.current) clearTimeout(infoSaveTimerRef.current)
     infoSaveTimerRef.current = setTimeout(saveInfoNow, 600)
+  }
+
+  async function runOptionalPostprocessing({ rule, label, confirm }) {
+    const before = blocksRef.current
+    if (!before) return
+    const headers = await authHeaders()
+    const res = await fetch(`${API}/postprocess/${rule}`, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ blocks: before }),
+    })
+    if (!res.ok) { alert(`${label} failed.`); return }
+    const { blocks: updated, changed } = await res.json()
+    if (changed === 0) { alert(`${label}: nothing to change.`); return }
+    if (!window.confirm(confirm(changed))) return
+    if (blocksRef.current !== before) { alert("The transcript changed while this was running. Try again."); return }
+    recordHistory(false)
+    setBlocks(updated)
+    putBlocks(updated)
   }
 
   async function saveInfoNow() {
@@ -1018,6 +1144,9 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
                   <button onMouseDown={e => e.preventDefault()} onClick={() => { saveJson("current"); setMenuOpen(false) }} style={{ fontSize: 13, padding: "7px 10px", borderRadius: 4, border: "1px solid #b0b0b0", background: "white", color: "#555", cursor: "pointer", textAlign: "left" }}>
                     💾 Save current .json
                   </button>
+                  <button onMouseDown={e => e.preventDefault()} onClick={() => { setMacrosOpen(true); setMenuOpen(false) }} style={{ fontSize: 13, padding: "7px 10px", borderRadius: 4, border: "1px solid #b0b0b0", background: "white", color: "#555", cursor: "pointer", textAlign: "left" }}>
+                    ⌨ User macros
+                  </button>
                 </div>
               )}
             </div>
@@ -1062,7 +1191,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
         )}
       </div>
 
-      <TranscriptInfo info={info} onChange={updateInfo} />
+      <TranscriptInfo info={info} onChange={updateInfo} onRunOptional={runOptionalPostprocessing} />
 
       <div style={{ background: "white", border: "1px solid #c9c9c9", borderRadius: 4, overflow: "hidden" }}>
         <div style={{
@@ -1098,6 +1227,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
             onDelete={() => deleteBlock(i)}
             onToggleQa={toggleQaFrom}
             segmentMap={segmentMap}
+            macros={macroMap}
             isSelected={selectedIndex === i}
             onSelect={() => setSelectedIndex(i)}
             onTextChange={handleTextChange}
@@ -1106,6 +1236,8 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
           />
         ))}
       </div>
+
+      {macrosOpen && <MacroEditor macros={macros} onSave={saveMacros} onClose={() => setMacrosOpen(false)} />}
 
       {stale && (
         <div style={{

@@ -3,6 +3,9 @@
 Each rule is a plain function text -> text, run in order on every utterance's text.
 To add a rule, write the function and append it to RULES. Only the editable transcript
 (jobs.utterances) is post-processed; jobs.original_utterances keeps the raw AI output.
+
+Optional post-processing rules (OPTIONAL_RULES) don't run automatically: each gets a
+button on the Review page, which applies it to the current transcript as an undoable edit.
 """
 import re
 
@@ -20,7 +23,7 @@ def em_dashes_to_double_hyphens(text: str) -> str:
 _FILLER = re.compile(r"(?<![\w'-])(?:um+|uh+|uhm+)(?![\w'-])", re.I)
 
 
-def remove_fillers(text: str) -> str:
+def strip_fillers(text: str) -> str:
     """Drops "um" and "uh" with the commas around them ("hello, uh, my name is" ->
     "hello my name is"), capitalizing the next word when a sentence started with one
     ("Um, we were dating." -> "We were dating."). An utterance that was only fillers
@@ -146,25 +149,37 @@ def small_numbers_to_words(text: str) -> str:
     return _SMALL_NUMBER.sub(to_word, text)
 
 
+def remove_fillers(text: str) -> str:
+    """Removes fillers, then re-dashes any repeat a filler was separating: by now the
+    repeats rule has already run, so "I, um, I went" would otherwise end as "I I went"."""
+    cleaned = strip_fillers(text)
+    return repeats_to_double_hyphens(cleaned) if cleaned != text else text
+
+
+# Post-processing: run automatically on every new transcript
 RULES = [
     em_dashes_to_double_hyphens,
-    remove_fillers,  # before repeats: "I, um, I went" -> "I I went" -> "I -- I went"
     repeats_to_double_hyphens,
     small_numbers_to_words,  # after repeats: digits are exempt from repeat-dashing ("2, 2"), words aren't
 ]
 
+# Optional post-processing: run on demand from the Review page, one button each
+OPTIONAL_RULES = {
+    "remove_fillers": remove_fillers,
+}
 
-def postprocess_text(text: str) -> str:
-    for rule in RULES:
+
+def postprocess_text(text: str, rules: list = RULES) -> str:
+    for rule in rules:
         text = rule(text)
     return text
 
 
-def postprocess_blocks(blocks: list) -> list:
+def postprocess_blocks(blocks: list, rules: list = RULES) -> list:
     out = []
     for b in blocks:
         if b.get("type", "utterance") == "utterance":
-            b = {**b, "text": postprocess_text(b["text"])}
+            b = {**b, "text": postprocess_text(b["text"], rules)}
             if not b["text"]:
                 continue  # the utterance was nothing but fillers
         out.append(b)
