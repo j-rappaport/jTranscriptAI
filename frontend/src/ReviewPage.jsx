@@ -31,10 +31,11 @@ const TRANSCRIPT_TYPES = {
   grand_jury: "Grand jury",
   interview: "Interview",
 }
-const EMPTY_INFO = { date: null, time: null, type: null, volume: null, gj_number: null }
+const EMPTY_INFO = { date: null, time: null, type: null, county: null, case_number: null, volume: null, gj_number: null }
 
 // Guesses for a job whose info hasn't been filled in: TRM recordings carry their real
-// local start time (segment_map), and names like "GRAND JURY 2" or "GJ 2--Pete" mean a grand jury.
+// local start time (segment_map), names like "GRAND JURY 2" or "GJ 2--Pete" mean a grand
+// jury, and "YAMHILL COUNTY ..." names the county.
 function guessInfo(filename, segmentMap) {
   const info = { ...EMPTY_INFO, type: "court_proceeding" }
   if (segmentMap?.length) {
@@ -47,6 +48,8 @@ function guessInfo(filename, segmentMap) {
     info.type = "grand_jury"
     info.gj_number = gj[1] ?? null
   }
+  const county = (filename || "").match(/\b([a-z]+)\s+county\b/i)
+  if (county) info.county = county[1][0].toUpperCase() + county[1].slice(1).toLowerCase()
   return info
 }
 
@@ -70,14 +73,14 @@ const OPTIONAL_POSTPROCESSING = [
 ]
 
 // User macros: typing a trigger then Space in the transcript expands it ("ind" -> "(indiscernible)").
-// Triggers are single words (no spaces or . , ? !), matched ignoring case; each user has their own list.
+// Triggers are single words (no spaces or . , ? !), matched exactly, capitals included ("mhm" and "Mhm" are separate macros); each user has their own list.
 function MacroEditor({ macros, onSave, onClose }) {
   const [rows, setRows] = useState(() => macros.length ? macros : [{ trigger: "", expansion: "" }])
   const update = (i, key, value) => setRows(rs => rs.map((r, j) => j === i ? { ...r, [key]: value } : r))
   const cleaned = rows
     .map(r => ({ trigger: r.trigger.replace(/[\s.,?!]+/g, ""), expansion: r.expansion }))
     .filter(r => r.trigger && r.expansion)
-  const triggers = cleaned.map(r => r.trigger.toLowerCase())
+  const triggers = cleaned.map(r => r.trigger)
   const duplicate = triggers.find((t, i) => triggers.indexOf(t) !== i)
 
   return (
@@ -141,6 +144,8 @@ function TranscriptInfo({ info, onChange, onRunOptional }) {
           {Object.entries(TRANSCRIPT_TYPES).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
         </select>
       ))}
+      {field("County", text("county", 120))}
+      {field("Case No.", text("case_number", 140))}
       {field("Volume", text("volume", 90))}
       {field("Grand Jury No.", text("gj_number", 90))}
       <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
@@ -371,7 +376,7 @@ function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onM
             const ta = e.target
             const { selectionStart: s, selectionEnd: en } = ta
             const word = s === en ? ta.value.slice(0, s).match(/(?:^|\s)(\S+)$/)?.[1] : null
-            const expansion = word && macros.get(word.toLowerCase())
+            const expansion = word && macros.get(word)
             if (expansion) {
               e.preventDefault()
               const start = s - word.length
@@ -597,7 +602,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   const [stale, setStale] = useState(false)
   const [macros, setMacros] = useState([])  // [{ trigger, expansion }], the user's own, from /settings
   const [macrosOpen, setMacrosOpen] = useState(false)
-  const macroMap = useMemo(() => new Map(macros.map(m => [m.trigger.toLowerCase(), m.expansion])), [macros])
+  const macroMap = useMemo(() => new Map(macros.map(m => [m.trigger, m.expansion])), [macros])
   const [info, setInfo] = useState(EMPTY_INFO)
   const infoRef = useRef(EMPTY_INFO)
   const infoSaveTimerRef = useRef(null)
@@ -726,7 +731,8 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
           setBlocks(migrated)
           if (changed) putBlocks(migrated)
           setJobFilename(data.filename ? data.filename.replace(/\.[^.]+$/, "") : jobId)
-          const loadedInfo = data.info ?? guessInfo(data.filename, data.segment_map)
+          // Saved fields win (even ones cleared to null); fields added since it was saved get the guess
+          const loadedInfo = { ...guessInfo(data.filename, data.segment_map), ...data.info }
           infoRef.current = loadedInfo
           setInfo(loadedInfo)
           setSegmentMap(data.segment_map || null)
@@ -1319,9 +1325,10 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
                     <div
                       key={s}
                       onClick={() => selectRow(s)}
+                      onDoubleClick={() => editRow(s)}
                       style={{
                         display: "flex", alignItems: "center",
-                        padding: editing ? "6px 14px" : "10px 14px",
+                        height: 38, boxSizing: "border-box", padding: "0 14px",  // same height whether showing or editing the name
                         fontSize: 13, cursor: "pointer",
                         background: selected ? "#EBF3FB" : "white",
                         borderBottom: "1px solid #f0f0f0",
@@ -1333,10 +1340,11 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
                           value={renameValue}
                           onChange={e => setRenameValue(e.target.value)}
                           onClick={e => e.stopPropagation()}
+                          onDoubleClick={e => e.stopPropagation()}
                           onKeyDown={e => { e.stopPropagation(); if (e.key === "Enter") applyRenameOne(); if (e.key === "Escape") setRenameTarget(null) }}
                           onBlur={() => modalRef.current?.focus()}
                           style={{
-                            flex: 1, padding: "3px 8px", fontSize: 13, fontWeight: 500,
+                            flex: 1, minWidth: 0, padding: "3px 8px", fontSize: 13, fontWeight: 500,
                             borderRadius: 3, border: "1.5px solid #1a4480", outline: "none",
                             boxSizing: "border-box", color: "#1a4480", background: "white"
                           }}
@@ -1356,9 +1364,10 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
                 })}
                 <div
                   onClick={() => selectRow(null)}
+                  onDoubleClick={() => editRow(null)}
                   style={{
                     display: "flex", alignItems: "center",
-                    padding: isAddNew && renameEditing ? "6px 14px" : "10px 14px",
+                    height: 38, boxSizing: "border-box", padding: "0 14px",
                     fontSize: 13, cursor: "pointer",
                     background: isAddNew ? "#EBF3FB" : "white",
                   }}
@@ -1369,11 +1378,12 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
                       value={renameValue}
                       onChange={e => setRenameValue(e.target.value)}
                       onClick={e => e.stopPropagation()}
+                      onDoubleClick={e => e.stopPropagation()}
                       onKeyDown={e => { e.stopPropagation(); if (e.key === "Enter") applyRenameOne(); if (e.key === "Escape") setRenameTarget(null) }}
                       onBlur={() => modalRef.current?.focus()}
                       placeholder="New speaker name"
                       style={{
-                        flex: 1, padding: "3px 8px", fontSize: 13, fontWeight: 500,
+                        flex: 1, minWidth: 0, padding: "3px 8px", fontSize: 13, fontWeight: 500,
                         borderRadius: 3, border: "1.5px solid #1a4480", outline: "none",
                         boxSizing: "border-box", color: "#1a4480", background: "white"
                       }}

@@ -810,7 +810,7 @@ def get_all_jobs(user: str = Depends(require_auth)):
 
 
 # Transcript info filled in on the Review page; blank fields are stored as null (unspecified)
-JOB_INFO_FIELDS = ("date", "time", "type", "volume", "gj_number")
+JOB_INFO_FIELDS = ("date", "time", "type", "county", "case_number", "volume", "gj_number")
 JOB_TYPES = ("court_proceeding", "grand_jury", "interview")
 
 
