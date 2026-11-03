@@ -18,6 +18,21 @@ def em_dashes_to_double_hyphens(text: str) -> str:
     return re.sub(r"\s*(?:—|--)\s*", " -- ", text).rstrip()
 
 
+# "Okay," or "All right," opening a sentence (start of the utterance, or after . ? !)
+_OPENER_WITH_COMMA = re.compile(r'(^|[.?!]["”]?\s+)((?i:okay|all right)),\s+(\S)')
+
+
+def openers_as_own_sentence(text: str) -> str:
+    """An "Okay" or "All right" that opens a sentence is a sentence of its own: AssemblyAI
+    writes "Okay, so now we want to do this", court style is "Okay. So now we want to do this".
+    "Okay, okay, so" becomes "Okay. Okay. So"; an "okay" mid-sentence is left alone."""
+    previous = None
+    while previous != text:  # repeat, since each fix can leave another opener at a sentence start
+        previous = text
+        text = _OPENER_WITH_COMMA.sub(lambda m: f"{m.group(1)}{m.group(2)}. {m.group(3).upper()}", text)
+    return text
+
+
 # "um", "uh" and stretched spellings ("umm", "uhh", "uhm"). Hyphenated words are
 # answers, not fillers, and are kept: "uh-huh" (yes), "uh-uh" (no), "um-hum".
 _FILLER = re.compile(r"(?<![\w'-])(?:um+|uh+|uhm+)(?![\w'-])", re.I)
@@ -159,6 +174,7 @@ def remove_fillers(text: str) -> str:
 # Post-processing: run automatically on every new transcript
 RULES = [
     em_dashes_to_double_hyphens,
+    openers_as_own_sentence,  # before numbers: "Okay, 3 of them" -> "Okay. 3 of them" -> "Okay. Three of them"
     repeats_to_double_hyphens,
     small_numbers_to_words,  # after repeats: digits are exempt from repeat-dashing ("2, 2"), words aren't
 ]
