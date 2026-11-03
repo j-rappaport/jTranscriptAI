@@ -52,7 +52,7 @@ CREDIT_PACKS = {
     "50h": {"hours": 50,  "price_cents": 7000, "label": "50 hours"},
 }
 
-app = FastAPI(title="jTranscript")
+app = FastAPI(title="Court Record Pro")
 
 @app.on_event("startup")
 async def mark_stuck_jobs():
@@ -905,7 +905,7 @@ async def create_checkout(body: dict, user: str = Depends(require_auth)):
         line_items=[{
             "price_data": {
                 "currency": "usd",
-                "product_data": {"name": f"jTranscript — {pack['label']} transcription credit"},
+                "product_data": {"name": f"Court Record Pro — {pack['label']} transcription credit"},
                 "unit_amount": pack["price_cents"],
             },
             "quantity": 1,
