@@ -508,6 +508,19 @@ function HomePage() {
         </div>
 
         {(() => {
+          // Once transcription finishes, the same button opens the review; choosing new files brings Transcribe back
+          if (status === "done" && jobId) {
+            return (
+              <button onClick={() => openReview(jobId)}
+                style={{
+                  width: "100%", padding: 13, marginTop: 14, borderRadius: 4, border: "none",
+                  background: "#1a4480", color: "white",
+                  fontFamily: "'Public Sans', Arial, sans-serif", fontSize: 15, fontWeight: 500, cursor: "pointer"
+                }}>
+                Review transcript →
+              </button>
+            )
+          }
           const busy = uploading || status === "pending" || status === "transcribing"
           const disabled = !files.length || busy
           return (
@@ -528,7 +541,7 @@ function HomePage() {
           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 4, marginTop: 10, background: statusBg[status], color: statusColor[status], fontSize: 13 }}>
             <div style={{ width: 7, height: 7, borderRadius: "50%", background: statusColor[status], flexShrink: 0 }} />
             {status === "done"
-              ? <span>Done — <span onClick={() => openReview(jobId)} style={{ textDecoration: "underline", cursor: "pointer", fontWeight: 500 }}>Review transcript →</span></span>
+              ? "Transcription complete."
               : status === "error" ? `Error: ${error}`
               : `Status: ${status}…`
             }

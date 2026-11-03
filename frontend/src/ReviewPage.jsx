@@ -324,6 +324,45 @@ function computeBlockDisplay(blocks) {
 
 const MACRO_TRIGGER_KEYS = [" ", ".", ",", "?", "!"]
 
+// Auto-capitalization: the cursor is at a sentence start when it follows . ? ! (and maybe a
+// closing quote) and a space, unless the period ends an abbreviation that runs on
+// mid-sentence ("6 p.m. we", "e.g. the").
+const SENTENCE_START = /[.?!]["”]?\s+$/
+const NOT_SENTENCE_END = /\b(?:[ap]\.m|e\.g|i\.e|etc|vs|approx)\.\s+$/i
+
+// What typing `key` with the selection at [s, en) should do when it's more than inserting
+// the key, as { text, caret }; null means ordinary typing. Three things can happen:
+// - a user macro expands: "ind" then Space or . , ? ! gives "(indiscernible)" plus the key
+// - a letter starting a sentence is capitalized: "left. he" -> "left. He"
+// - a new sentence end capitalizes the word already after it: typing "." in
+//   "he left, then" (in place of the comma) gives "he left. Then"
+function typingEdit(value, s, en, key, macros) {
+  let before = value.slice(0, s)
+  let after = value.slice(en)
+  if (/^[a-z]$/.test(key)) {
+    return SENTENCE_START.test(before) && !NOT_SENTENCE_END.test(before)
+      ? { text: before + key.toUpperCase() + after, caret: s + 1 }
+      : null
+  }
+  if (!MACRO_TRIGGER_KEYS.includes(key)) return null
+  let changed = false
+  const word = s === en && macros?.size ? before.match(/(?:^|\s)(\S+)$/)?.[1] : null
+  const expansion = word && macros.get(word)
+  if (expansion) {
+    before = before.slice(0, before.length - word.length) + expansion
+    changed = true
+  }
+  // Not for "..." (an ellipsis runs on) or a period ending an abbreviation like "p.m."
+  if (".?!".includes(key) && !before.endsWith(".") && !NOT_SENTENCE_END.test(before + key + " ")) {
+    const next = after.match(/^(["”]?\s+)([a-z])/)
+    if (next) {
+      after = next[1] + next[2].toUpperCase() + after.slice(next[0].length)
+      changed = true
+    }
+  }
+  return changed ? { text: before + key + after, caret: before.length + 1 } : null
+}
+
 function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onMergeIntoPrevious, onFocusNext, onFocusPrev, onSelect, textareaRef, macros }) {
   const mirrorRef = useRef(null)
   const measureRef = useRef(null)
@@ -370,19 +409,13 @@ function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onM
         onBlur={onTextBlur}
         onFocus={onSelect}
         onKeyDown={e => {
-          if (MACRO_TRIGGER_KEYS.includes(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey && macros?.size) {
-            // User macros: the word just typed expands when Space, a period or a comma is
-            // typed after it ("ind," -> "(indiscernible),"), keeping the key that was typed
+          if (!e.ctrlKey && !e.altKey && !e.metaKey) {
             const ta = e.target
-            const { selectionStart: s, selectionEnd: en } = ta
-            const word = s === en ? ta.value.slice(0, s).match(/(?:^|\s)(\S+)$/)?.[1] : null
-            const expansion = word && macros.get(word)
-            if (expansion) {
+            const edit = typingEdit(ta.value, ta.selectionStart, ta.selectionEnd, e.key, macros)
+            if (edit) {
               e.preventDefault()
-              const start = s - word.length
-              const caret = start + expansion.length + 1
-              onTextChange(ta.value.slice(0, start) + expansion + e.key + ta.value.slice(s))
-              requestAnimationFrame(() => ta.setSelectionRange(caret, caret))
+              onTextChange(edit.text)
+              requestAnimationFrame(() => ta.setSelectionRange(edit.caret, edit.caret))
               return
             }
           }
