@@ -978,11 +978,15 @@ def run_transcription(job_id: str, audio_path: str, storage_key: str, user_id: s
 
         # Speakers are identified by speaker_id; "speaker" is only the display name and may repeat
         speaker_ids = {label: str(uuid.uuid4()) for label in {u.speaker for u in transcript.utterances}}
+        # AssemblyAI labels speakers A, B, C...; we number them in order of first appearance
+        speaker_numbers = {}
+        for u in transcript.utterances:
+            speaker_numbers.setdefault(u.speaker, len(speaker_numbers) + 1)
         blocks = [
             {
                 "type": "utterance",
                 "speaker_id": speaker_ids[u.speaker],
-                "speaker": f"SPEAKER {u.speaker}",
+                "speaker": f"SPEAKER {speaker_numbers[u.speaker]}",
                 "text": u.text,
                 "start_ms": u.start,
                 "end_ms": u.end
