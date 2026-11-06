@@ -848,7 +848,8 @@ def update_blocks(job_id: str, body: dict, user: str = Depends(require_auth)):
 def get_docx(job_id: str, user: str = Depends(require_auth)):
     job = get_owned_job(job_id, user)
     blocks = job.get("utterances") or []
-    base = os.path.splitext(job.get("filename", "transcript"))[0]
+    # Strip only an audio extension: a renamed job like "Smith v. Jones" keeps its period
+    base = re.sub(r"\.(mp3|wav|m4a|mp4|aac|flac|ogg|wma|trm)$", "", job.get("filename") or "transcript", flags=re.I)
     buf = generate_docx(blocks, job.get("info"), job.get("segment_map"))
     return StreamingResponse(
         buf,

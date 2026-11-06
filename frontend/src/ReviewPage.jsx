@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo, Fragment } from "react"
+import { useState, useRef, useEffect, useMemo, Fragment, memo } from "react"
 import { BrandLogo } from "./App"
 
 const API = import.meta.env.VITE_API_URL
@@ -61,6 +61,7 @@ function metaDefaultText(type, info) {
 
 const INFO_LABEL_STYLE = { fontSize: 11, fontWeight: 500, letterSpacing: "0.07em", textTransform: "uppercase", color: "#aaa" }
 const INFO_INPUT_STYLE = { fontSize: 13, padding: "4px 8px", border: "1px solid #c9c9c9", borderRadius: 3, color: "#222", background: "white", fontFamily: "inherit" }
+const INFO_ROW_STYLE = { display: "flex", flexWrap: "wrap", gap: "10px 20px", alignItems: "flex-end" }
 
 // Optional post-processing: rules that run only on demand (OPTIONAL_RULES in postprocess.py),
 // one button each in the info card. confirm() is the warning shown before applying.
@@ -123,7 +124,22 @@ function MacroEditor({ macros, onSave, onClose }) {
   )
 }
 
-function TranscriptInfo({ info, onChange, onRunOptional }) {
+// The job's name, as on the home page's job list: saved on Enter or leaving the field, Escape reverts
+// (keyed by the name, so it starts over with a fresh draft whenever the saved name changes)
+function JobNameInput({ name, onRename }) {
+  const [draft, setDraft] = useState(name)
+  return (
+    <input value={draft} onChange={e => setDraft(e.target.value)}
+      onBlur={() => { const n = draft.trim(); if (n && n !== name) onRename(n); else setDraft(name) }}
+      onKeyDown={e => {
+        if (e.key === "Enter") e.target.blur()
+        if (e.key === "Escape") { setDraft(name); requestAnimationFrame(() => e.target.blur()) }
+      }}
+      style={{ ...INFO_INPUT_STYLE, width: 220, fontWeight: 600 }} />
+  )
+}
+
+function TranscriptInfo({ info, onChange, onRunOptional, jobName, onRename }) {
   const field = (label, input) => (
     <label style={{ display: "flex", flexDirection: "column", gap: 3 }}>
       <span style={INFO_LABEL_STYLE}>{label}</span>
@@ -135,25 +151,30 @@ function TranscriptInfo({ info, onChange, onRunOptional }) {
       style={{ ...INFO_INPUT_STYLE, width }} />
   )
   return (
-    <div data-plain-keys style={{ background: "white", border: "1px solid #c9c9c9", borderRadius: 4, padding: "10px 16px", marginBottom: 12, display: "flex", flexWrap: "wrap", gap: "10px 20px", alignItems: "flex-end" }}>
-      {field("Date", <input type="date" value={info.date ?? ""} onChange={e => onChange("date", e.target.value)} style={INFO_INPUT_STYLE} />)}
-      {field("Time", <input type="time" value={info.time ?? ""} onChange={e => onChange("time", e.target.value)} style={INFO_INPUT_STYLE} />)}
-      {field("Type", (
-        <select value={info.type ?? ""} onChange={e => onChange("type", e.target.value)} style={INFO_INPUT_STYLE}>
-          <option value="">Unspecified</option>
-          {Object.entries(TRANSCRIPT_TYPES).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
-        </select>
-      ))}
-      {field("County", text("county", 120))}
-      {field("Case No.", text("case_number", 140))}
-      {field("Volume", text("volume", 90))}
-      {field("Grand Jury No.", text("gj_number", 90))}
-      <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-        {OPTIONAL_POSTPROCESSING.map(p => (
-          <button key={p.rule} onClick={() => onRunOptional(p)} style={{ ...INFO_INPUT_STYLE, cursor: "pointer", color: "#1a4480", borderColor: "#1a4480" }}>
-            {p.label}
-          </button>
+    <div data-plain-keys style={{ background: "white", border: "1px solid #c9c9c9", borderRadius: 4, padding: "10px 16px", marginBottom: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={INFO_ROW_STYLE}>
+        {field("Job name", <JobNameInput key={jobName} name={jobName} onRename={onRename} />)}
+        {field("Type", (
+          <select value={info.type ?? ""} onChange={e => onChange("type", e.target.value)} style={INFO_INPUT_STYLE}>
+            <option value="">Unspecified</option>
+            {Object.entries(TRANSCRIPT_TYPES).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+          </select>
         ))}
+        {field("County", text("county", 120))}
+      </div>
+      <div style={INFO_ROW_STYLE}>
+        {field("Date", <input type="date" value={info.date ?? ""} onChange={e => onChange("date", e.target.value)} style={INFO_INPUT_STYLE} />)}
+        {field("Time", <input type="time" value={info.time ?? ""} onChange={e => onChange("time", e.target.value)} style={INFO_INPUT_STYLE} />)}
+        {field("Case No.", text("case_number", 140))}
+        {field("Volume", text("volume", 90))}
+        {field("Grand Jury No.", text("gj_number", 90))}
+        <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+          {OPTIONAL_POSTPROCESSING.map(p => (
+            <button key={p.rule} onClick={() => onRunOptional(p)} style={{ ...INFO_INPUT_STYLE, cursor: "pointer", color: "#1a4480", borderColor: "#1a4480" }}>
+              {p.label}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   )
@@ -258,12 +279,24 @@ function focusBlockText(index, selector) {
   focusElementAt(document.querySelector(`[data-block-index="${index}"] ${selector}`), 0)
 }
 
+// The menu opens below its ☰ button, or above it when it would run off the bottom of the screen
+// (and there's more room above)
+function openUpwardIfNoRoom(menu) {
+  if (!menu) return
+  const rect = menu.getBoundingClientRect()
+  const buttonTop = rect.top - menu.offsetParent.offsetHeight - 4
+  if (rect.bottom > window.innerHeight - 8 && buttonTop > window.innerHeight - rect.top) {
+    menu.style.top = "auto"
+    menu.style.bottom = "calc(100% + 4px)"
+  }
+}
+
 function InsertMenu({ onInsert, onDelete, onClose, onToggleQa, qaToggleLabel }) {
   const itemStyle = { display: "block", width: "100%", textAlign: "left", padding: "7px 14px", fontSize: 12, background: "none", border: "none", cursor: "pointer" }
   return (
     <>
       <div style={{ position: "fixed", inset: 0, zIndex: 9 }} onClick={onClose} />
-      <div style={{
+      <div ref={openUpwardIfNoRoom} style={{
         position: "absolute", left: 0, top: "calc(100% + 4px)", zIndex: 10,
         background: "white", border: "1px solid #b0b0b0", borderRadius: 4,
         boxShadow: "0 4px 12px rgba(0,0,0,0.08)", padding: "4px 0", minWidth: 160
@@ -457,7 +490,8 @@ function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onM
   )
 }
 
-function BlockRow({ block, index, role, sectionIndex, isSelected, onSelect, onTextChange, onTextBlur, onRenameOne, onSplitHere, onMergeIntoPrevious, onFocusNext, onFocusPrev, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete, onToggleQa, segmentMap, textareaRef, macros }) {
+// Memoized: a row redraws only when its own props change (see rowHandlers in ReviewPage)
+const BlockRow = memo(function BlockRow({ block, index, role, sectionIndex, isSelected, onSelect, onTextChange, onTextBlur, onRenameOne, onSplitHere, onMergeIntoPrevious, onFocusNext, onFocusPrev, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete, onToggleQa, segmentMap, textareaRef, macros }) {
   const rowBg = isSelected ? "#dcfce7" : (sectionIndex % 2 === 0 ? "white" : "#fafafa")
 
   const rowStyle = {
@@ -598,7 +632,7 @@ function BlockRow({ block, index, role, sectionIndex, isSelected, onSelect, onTe
       </div>
     </div>
   )
-}
+})
 
 export default function ReviewPage({ jobId, onBack, authHeaders }) {
   const [blocks, setBlocks] = useState(null)
@@ -635,6 +669,8 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   const [stale, setStale] = useState(false)
   const [macros, setMacros] = useState([])  // [{ trigger, expansion }], the user's own, from /settings
   const [macrosOpen, setMacrosOpen] = useState(false)
+  const actionsRef = useRef(null)    // the latest handlers, for the rows' stable ones (see rowHandlers)
+  const rowHandlersRef = useRef([])  // per-row handler objects, kept between renders
   const macroMap = useMemo(() => new Map(macros.map(m => [m.trigger, m.expansion])), [macros])
   const [info, setInfo] = useState(EMPTY_INFO)
   const infoRef = useRef(EMPTY_INFO)
@@ -763,7 +799,8 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
           versionRef.current = data.blocks_version
           setBlocks(migrated)
           if (changed) putBlocks(migrated)
-          setJobFilename(data.filename ? data.filename.replace(/\.[^.]+$/, "") : jobId)
+          // Strip only an audio file extension: a renamed job like "Smith v. Jones" keeps its period
+          setJobFilename(data.filename ? data.filename.replace(/\.(mp3|wav|m4a|mp4|aac|flac|ogg|wma|trm)$/i, "") : jobId)
           // Saved fields win (even ones cleared to null); fields added since it was saved get the guess
           const loadedInfo = { ...guessInfo(data.filename, data.segment_map), ...data.info }
           infoRef.current = loadedInfo
@@ -821,6 +858,23 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     recordHistory(false)
     setBlocks(updated)
     putBlocks(updated)
+  }
+
+  async function renameJob(filename) {
+    const previous = jobFilename
+    setJobFilename(filename)
+    try {
+      const headers = await authHeaders()
+      const res = await fetch(`${API}/jobs/${jobId}`, {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ filename }),
+      })
+      if (!res.ok) throw new Error(res.status)
+    } catch {
+      setJobFilename(previous)
+      alert("Failed to rename the job")
+    }
   }
 
   async function saveInfoNow() {
@@ -1123,6 +1177,32 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
 
   const { roles, sectionIndices } = loading ? { roles: [], sectionIndices: [] } : computeBlockDisplay(blocks)
 
+  // Rows re-render only when their own props change (BlockRow is memoized), so typing in one
+  // block doesn't redraw hundreds. That needs handlers that keep the same identity across
+  // renders: each row's handlers are made once and call the latest code through actionsRef.
+  actionsRef.current = {
+    openRenameOne, splitUtterance, mergeIntoPrevious, focusAdjacentBlock, setInsertMenuIndex,
+    insertBlock, deleteBlock, toggleQaFrom, setSelectedIndex, handleTextChange, saveBlocksNow,
+  }
+  function rowHandlers(i) {
+    const a = () => actionsRef.current
+    return rowHandlersRef.current[i] ??= {
+      onRenameOne: (...args) => a().openRenameOne(...args),
+      onSplitHere: (...args) => a().splitUtterance(...args),
+      onMergeIntoPrevious: (...args) => a().mergeIntoPrevious(...args),
+      onFocusNext: () => a().focusAdjacentBlock(i, 1),
+      onFocusPrev: () => a().focusAdjacentBlock(i, -1),
+      onOpenInsertMenu: () => a().setInsertMenuIndex(i),
+      onCloseInsertMenu: () => a().setInsertMenuIndex(null),
+      onInsert: type => a().insertBlock(i, type),
+      onDelete: () => a().deleteBlock(i),
+      onToggleQa: (...args) => a().toggleQaFrom(...args),
+      onSelect: () => a().setSelectedIndex(i),
+      onTextChange: (...args) => a().handleTextChange(...args),
+      onTextBlur: (...args) => a().saveBlocksNow(...args),
+    }
+  }
+
   if (loading) return (
     <div style={{ fontFamily: "'Public Sans', Arial, sans-serif", maxWidth: "min(1400px, 92vw)", margin: "48px auto", padding: "0 20px" }}>
       <p style={{ color: "#888" }}>Loading transcript…</p>
@@ -1230,12 +1310,13 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
         )}
       </div>
 
-      <TranscriptInfo info={info} onChange={updateInfo} onRunOptional={runOptionalPostprocessing} />
+      <TranscriptInfo info={info} onChange={updateInfo} onRunOptional={runOptionalPostprocessing} jobName={jobFilename} onRename={renameJob} />
 
-      <div style={{ background: "white", border: "1px solid #c9c9c9", borderRadius: 4, overflow: "hidden" }}>
+      {/* No overflow clipping here, so a row's ☰ menu can extend past the last row */}
+      <div style={{ background: "white", border: "1px solid #c9c9c9", borderRadius: 4 }}>
         <div style={{
           display: "grid", gridTemplateColumns: "110px 160px 40px 1fr",
-          gap: 12, padding: "8px 16px",
+          gap: 12, padding: "8px 16px", borderRadius: "3px 3px 0 0",
           background: "#1a4480", color: "white", fontSize: 11,
           fontWeight: 500, letterSpacing: "0.06em", textTransform: "uppercase"
         }}>
@@ -1252,25 +1333,13 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
             block={block}
             role={roles[i]}
             sectionIndex={sectionIndices[i]}
-            onRenameOne={openRenameOne}
-            onSplitHere={splitUtterance}
-            onMergeIntoPrevious={mergeIntoPrevious}
-            onFocusNext={() => focusAdjacentBlock(i, 1)}
-            onFocusPrev={() => focusAdjacentBlock(i, -1)}
+            {...rowHandlers(i)}
             audioRef={audioRef}
             audioAvailable={audioAvailable}
             insertMenuOpen={insertMenuIndex === i}
-            onOpenInsertMenu={() => setInsertMenuIndex(i)}
-            onCloseInsertMenu={() => setInsertMenuIndex(null)}
-            onInsert={type => insertBlock(i, type)}
-            onDelete={() => deleteBlock(i)}
-            onToggleQa={toggleQaFrom}
             segmentMap={segmentMap}
             macros={macroMap}
             isSelected={selectedIndex === i}
-            onSelect={() => setSelectedIndex(i)}
-            onTextChange={handleTextChange}
-            onTextBlur={saveBlocksNow}
             textareaRef={i === firstUtteranceIndex ? firstUtteranceRef : null}
           />
         ))}
