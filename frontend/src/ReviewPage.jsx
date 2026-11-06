@@ -366,14 +366,17 @@ const NOT_SENTENCE_END = /\b(?:[ap]\.m|e\.g|i\.e|etc|vs|approx)\.\s+$/i
 // What typing `key` with the selection at [s, en) should do when it's more than inserting
 // the key, as { text, caret }; null means ordinary typing. Three things can happen:
 // - a user macro expands: "ind" then Space or . , ? ! gives "(indiscernible)" plus the key
-// - a letter starting a sentence is capitalized: "left. he" -> "left. He"
+// - a letter starting a sentence is capitalized: "left. he" -> "left. He", and the first
+//   letter typed into an empty block
 // - a new sentence end capitalizes the word already after it: typing "." in
 //   "he left, then" (in place of the comma) gives "he left. Then"
 function typingEdit(value, s, en, key, macros) {
   let before = value.slice(0, s)
   let after = value.slice(en)
   if (/^[a-z]$/.test(key)) {
-    return SENTENCE_START.test(before) && !NOT_SENTENCE_END.test(before)
+    // A sentence start: after . ? ! and a space, or the first letter typed into an empty block
+    const emptyBlock = !before.trim() && !after.trim()
+    return emptyBlock || (SENTENCE_START.test(before) && !NOT_SENTENCE_END.test(before))
       ? { text: before + key.toUpperCase() + after, caret: s + 1 }
       : null
   }
@@ -390,6 +393,14 @@ function typingEdit(value, s, en, key, macros) {
     const next = after.match(/^(["”]?\s+)([a-z])/)
     if (next) {
       after = next[1] + next[2].toUpperCase() + after.slice(next[0].length)
+      changed = true
+    }
+  }
+  // A space typed between a sentence end and a word: "left.|then" -> "left. Then"
+  if (key === " " && /[.?!]["”]?$/.test(before) && !/\.\.["”]?$/.test(before) && !NOT_SENTENCE_END.test(before + " ")) {
+    const next = after.match(/^["“]?[a-z]/)
+    if (next) {
+      after = next[0].slice(0, -1) + next[0].slice(-1).toUpperCase() + after.slice(next[0].length)
       changed = true
     }
   }
@@ -1077,6 +1088,8 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
 
   function splitUtterance(index, beforeText, afterText) {
     recordHistory(false)
+    // The new utterance starts a sentence, so its first word is capitalized
+    afterText = afterText.replace(/^(\s*["“]?)([a-z])/, (_, lead, letter) => lead + letter.toUpperCase())
     const newBlock = { type: "utterance", ...guessOtherSpeaker(blocks, index), text: afterText, qa: blocks[index]?.qa, start_ms: blocks[index]?.end_ms ?? 0, end_ms: blocks[index]?.end_ms ?? 0 }
     const updated = blocks.map((b, i) => i === index ? { ...b, text: beforeText } : b)
     const withNew = [...updated.slice(0, index + 1), newBlock, ...updated.slice(index + 1)]
