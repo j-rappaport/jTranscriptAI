@@ -38,8 +38,8 @@ stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 AUDIO_BUCKET = "audio"
-STORAGE_MAX_BYTES = 50_000_000  # Supabase free-plan per-file limit
-# Mono courtroom audio loses nothing at 64 kbps, and ~29 MB/hour keeps a session under the storage limit
+STORAGE_MAX_BYTES = 500_000_000  # the Supabase per-file upload limit, set in the project's storage settings
+# Mono courtroom audio loses nothing at 64 kbps, and ~29 MB/hour keeps uploads small
 MIXDOWN_BITRATE = "64k"
 UPLOAD_ATTEMPTS = 3
 AUDIO_URL_TTL_SECONDS = 12 * 3600  # signed audio link for the Review page; long enough for a session
@@ -387,7 +387,7 @@ def storage_upload(key: str, local_path: str):
         resp = httpx.post(
             f"{SUPABASE_URL}/storage/v1/object/{AUDIO_BUCKET}/{key}",
             headers={**_storage_headers(), "Content-Type": mime_type or "application/octet-stream"},
-            content=f.read(),
+            content=f,  # streamed from disk, so a large file isn't held in memory
             timeout=120,
         )
     resp.raise_for_status()
