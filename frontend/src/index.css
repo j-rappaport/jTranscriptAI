@@ -30,3 +30,9 @@ body {
 p {
   margin: 0;
 }
+
+/* Review page: highlight that fades behind text changed automatically (capitals, macros) */
+@keyframes autoFixFlash {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}

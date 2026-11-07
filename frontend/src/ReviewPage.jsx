@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useMemo, Fragment, memo } from "react"
 import { BrandLogo } from "./App"
+import { typingEdit, splitEdit } from "./autoEdit"
 
 const API = import.meta.env.VITE_API_URL
 
@@ -355,64 +356,15 @@ function computeBlockDisplay(blocks) {
   return { roles, sectionIndices }
 }
 
-const MACRO_TRIGGER_KEYS = [" ", ".", ",", "?", "!"]
-
-// Auto-capitalization: the cursor is at a sentence start when it follows . ? ! (and maybe a
-// closing quote) and a space, unless the period ends an abbreviation that runs on
-// mid-sentence ("6 p.m. we", "e.g. the").
-const SENTENCE_START = /[.?!]["”]?\s+$/
-const NOT_SENTENCE_END = /\b(?:[ap]\.m|e\.g|i\.e|etc|vs|approx)\.\s+$/i
-
-// What typing `key` with the selection at [s, en) should do when it's more than inserting
-// the key, as { text, caret }; null means ordinary typing. Three things can happen:
-// - a user macro expands: "ind" then Space or . , ? ! gives "(indiscernible)" plus the key
-// - a letter starting a sentence is capitalized: "left. he" -> "left. He", and the first
-//   letter typed into an empty block
-// - a new sentence end capitalizes the word already after it: typing "." in
-//   "he left, then" (in place of the comma) gives "he left. Then"
-function typingEdit(value, s, en, key, macros) {
-  let before = value.slice(0, s)
-  let after = value.slice(en)
-  if (/^[a-z]$/.test(key)) {
-    // A sentence start: after . ? ! and a space, or the first letter typed into an empty block
-    const emptyBlock = !before.trim() && !after.trim()
-    return emptyBlock || (SENTENCE_START.test(before) && !NOT_SENTENCE_END.test(before))
-      ? { text: before + key.toUpperCase() + after, caret: s + 1 }
-      : null
-  }
-  if (!MACRO_TRIGGER_KEYS.includes(key)) return null
-  let changed = false
-  const word = s === en && macros?.size ? before.match(/(?:^|\s)(\S+)$/)?.[1] : null
-  const expansion = word && macros.get(word)
-  if (expansion) {
-    before = before.slice(0, before.length - word.length) + expansion
-    changed = true
-  }
-  // Not for "..." (an ellipsis runs on) or a period ending an abbreviation like "p.m."
-  if (".?!".includes(key) && !before.endsWith(".") && !NOT_SENTENCE_END.test(before + key + " ")) {
-    const next = after.match(/^(["”]?\s+)([a-z])/)
-    if (next) {
-      after = next[1] + next[2].toUpperCase() + after.slice(next[0].length)
-      changed = true
-    }
-  }
-  // A space typed between a sentence end and a word: "left.|then" -> "left. Then"
-  if (key === " " && /[.?!]["”]?$/.test(before) && !/\.\.["”]?$/.test(before) && !NOT_SENTENCE_END.test(before + " ")) {
-    const next = after.match(/^["“]?[a-z]/)
-    if (next) {
-      after = next[0].slice(0, -1) + next[0].slice(-1).toUpperCase() + after.slice(next[0].length)
-      changed = true
-    }
-  }
-  return changed ? { text: before + key + after, caret: before.length + 1 } : null
-}
-
-function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onMergeIntoPrevious, onFocusNext, onFocusPrev, onSelect, textareaRef, macros }) {
+function UtteranceText({ index, text, onTextChange, onAutoEdit, flash, onFlashEnd, onTextBlur, onSplitHere, onMergeIntoPrevious, onFocusNext, onFocusPrev, onSelect, textareaRef, macros }) {
   const mirrorRef = useRef(null)
   const measureRef = useRef(null)
+  const lastAutoEditRef = useRef(null)  // the automatic change just made, until the next key: { text, caret, plain }
 
+  // The textarea and its layout copies (line counting, flash) must lay text out identically.
+  // Textareas don't inherit the page's letter-spacing, so it's set here for all of them.
   const sharedStyle = {
-    fontSize: 13, lineHeight: 1.6, fontFamily: "inherit",
+    fontSize: 13, lineHeight: 1.6, fontFamily: "inherit", letterSpacing: "normal",
     padding: "4px 8px", border: "1px solid transparent",
     boxSizing: "border-box", gridArea: "1 / 1 / 2 / 2", width: "100%",
   }
@@ -434,6 +386,32 @@ function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onM
     return Math.round((mirrorRef.current.scrollHeight - paddingV) / lineHeightPx)
   }
 
+  // A brief highlight behind text changed automatically (autoEdit.js), as Word does, so it reads
+  // as a separate action: an invisible copy of the text, laid out exactly like the textarea,
+  // with the changed characters marked. Shown only while the text is still what was flashed.
+  function renderFlash() {
+    if (!flash || flash.text !== text) return null
+    const pieces = []
+    let pos = 0
+    flash.ranges.forEach(([a, b], i) => {
+      pieces.push(text.slice(pos, a))
+      pieces.push(
+        <mark key={`${flash.id}-${i}`} onAnimationEnd={i === 0 ? onFlashEnd : undefined} style={{
+          color: "transparent", background: "#bcd3f0", borderRadius: 3,
+          animation: "autoFixFlash 0.7s ease-out forwards",
+        }}>{text.slice(a, b)}</mark>
+      )
+      pos = b
+    })
+    pieces.push(text.slice(pos))
+    return (
+      <div aria-hidden style={{
+        ...sharedStyle, whiteSpace: "pre-wrap", wordWrap: "break-word", alignSelf: "start",
+        color: "transparent", pointerEvents: "none",
+      }}>{pieces}</div>
+    )
+  }
+
   return (
     <div style={{ display: "grid" }}>
       <div ref={mirrorRef} style={{
@@ -446,6 +424,7 @@ function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onM
         ...sharedStyle,
         whiteSpace: "pre-wrap", wordWrap: "break-word", visibility: "hidden", alignSelf: "start",
       }} />
+      {renderFlash()}
       <textarea
         ref={textareaRef}
         value={text}
@@ -453,20 +432,34 @@ function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onM
         onBlur={onTextBlur}
         onFocus={onSelect}
         onKeyDown={e => {
+          const ta = e.target
+          if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return  // pressing Ctrl on its way to Ctrl+Z
+          const lastAuto = lastAutoEditRef.current
+          lastAutoEditRef.current = null
+          if (e.ctrlKey && (e.key === "z" || e.key === "Z") && lastAuto && ta.value === lastAuto.text && ta.selectionStart === lastAuto.caret) {
+            // As in Word: Ctrl+Z right after an automatic change (capital, macro) undoes just
+            // that change and keeps the key as typed. The page-wide undo isn't reached.
+            e.preventDefault()
+            e.stopPropagation()
+            onTextChange(lastAuto.plain.text)
+            requestAnimationFrame(() => ta.setSelectionRange(lastAuto.plain.caret, lastAuto.plain.caret))
+            return
+          }
           if (!e.ctrlKey && !e.altKey && !e.metaKey) {
-            const ta = e.target
-            const edit = typingEdit(ta.value, ta.selectionStart, ta.selectionEnd, e.key, macros)
+            const { selectionStart: s, selectionEnd: en } = ta
+            const edit = typingEdit(ta.value, s, en, e.key, macros)
             if (edit) {
               e.preventDefault()
-              onTextChange(edit.text)
+              lastAutoEditRef.current = { text: edit.text, caret: edit.caret, plain: { text: ta.value.slice(0, s) + e.key + ta.value.slice(en), caret: s + 1 } }
+              onAutoEdit(edit.text, edit.changed)
               requestAnimationFrame(() => ta.setSelectionRange(edit.caret, edit.caret))
               return
             }
           }
           if (e.key === "Enter" && !e.shiftKey && onSplitHere) {
             e.preventDefault()
-            const cursor = e.target.selectionStart
-            onSplitHere(index, e.target.value.slice(0, cursor), e.target.value.slice(cursor))
+            // Enter finishes the word before the cursor and starts the new utterance (autoEdit.js)
+            onSplitHere(index, splitEdit(e.target.value, e.target.selectionStart, macros))
           } else if ((e.key === "Backspace" || e.key === "Delete") && onMergeIntoPrevious) {
             const { selectionStart: s, selectionEnd: en } = e.target
             const atStart = e.key === "Backspace" && s === en && s === 0
@@ -491,7 +484,7 @@ function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onM
         }}
         style={{
           ...sharedStyle,
-          height: "100%", color: "#222",
+          height: "100%", color: "#222", position: "relative",  // drawn above the flash
           borderRadius: 3, background: "transparent",
           resize: "none", overflow: "hidden", outline: "none",
           caretColor: "#dc2626",
@@ -502,7 +495,7 @@ function UtteranceText({ index, text, onTextChange, onTextBlur, onSplitHere, onM
 }
 
 // Memoized: a row redraws only when its own props change (see rowHandlers in ReviewPage)
-const BlockRow = memo(function BlockRow({ block, index, role, sectionIndex, isSelected, onSelect, onTextChange, onTextBlur, onRenameOne, onSplitHere, onMergeIntoPrevious, onFocusNext, onFocusPrev, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete, onToggleQa, segmentMap, textareaRef, macros }) {
+const BlockRow = memo(function BlockRow({ block, index, role, sectionIndex, isSelected, onSelect, onTextChange, onTextBlur, onRenameOne, onSplitHere, onMergeIntoPrevious, onFocusNext, onFocusPrev, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete, onToggleQa, segmentMap, textareaRef, macros, flash, onAutoEdit, onFlashEnd }) {
   const rowBg = isSelected ? "#dcfce7" : (sectionIndex % 2 === 0 ? "white" : "#fafafa")
 
   const rowStyle = {
@@ -568,6 +561,9 @@ const BlockRow = memo(function BlockRow({ block, index, role, sectionIndex, isSe
             text={block.text ?? ""}
             macros={macros}
             onTextChange={value => onTextChange(index, value)}
+            onAutoEdit={(value, ranges) => onAutoEdit(index, value, ranges)}
+            flash={flash}
+            onFlashEnd={() => onFlashEnd(index)}
             onTextBlur={onTextBlur}
             onFocusNext={onFocusNext}
             onFocusPrev={onFocusPrev}
@@ -632,6 +628,9 @@ const BlockRow = memo(function BlockRow({ block, index, role, sectionIndex, isSe
           text={block.text}
           macros={macros}
           onTextChange={value => onTextChange(index, value)}
+          onAutoEdit={(value, ranges) => onAutoEdit(index, value, ranges)}
+          flash={flash}
+          onFlashEnd={() => onFlashEnd(index)}
           onTextBlur={onTextBlur}
           onSplitHere={onSplitHere}
           onMergeIntoPrevious={onMergeIntoPrevious}
@@ -682,6 +681,8 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   const [macrosOpen, setMacrosOpen] = useState(false)
   const actionsRef = useRef(null)    // the latest handlers, for the rows' stable ones (see rowHandlers)
   const rowHandlersRef = useRef([])  // per-row handler objects, kept between renders
+  const [flashes, setFlashes] = useState({})  // block index -> { id, text, ranges } while an automatic change is flashed
+  const flashIdRef = useRef(0)
   const macroMap = useMemo(() => new Map(macros.map(m => [m.trigger, m.expansion])), [macros])
   const [info, setInfo] = useState(EMPTY_INFO)
   const infoRef = useRef(EMPTY_INFO)
@@ -1017,6 +1018,26 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     scheduleSave()
   }
 
+  // Automatic changes (macros, capitals; see autoEdit.js) are typing plus a flash of what changed
+  function handleAutoEdit(index, value, ranges) {
+    handleTextChange(index, value)
+    flashRow(index, value, ranges)
+  }
+
+  function flashRow(index, text, ranges) {
+    if (!ranges.length) return
+    flashIdRef.current += 1
+    setFlashes(f => ({ ...f, [index]: { id: flashIdRef.current, text, ranges } }))
+  }
+
+  function endFlash(index) {
+    setFlashes(f => {
+      const rest = { ...f }
+      delete rest[index]
+      return rest
+    })
+  }
+
   function focusAdjacentBlock(fromIndex, direction) {
     const cur = blocksRef.current
     const target = fromIndex + direction
@@ -1086,10 +1107,12 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     return unknownSpeaker(allBlocks)
   }
 
-  function splitUtterance(index, beforeText, afterText) {
+  // split: from splitEdit (autoEdit.js), which has already finished the word before the cursor
+  // and capitalized the new utterance; both changes are flashed
+  function splitUtterance(index, { before: beforeText, after: afterText, beforeChanged, afterChanged }) {
     recordHistory(false)
-    // The new utterance starts a sentence, so its first word is capitalized
-    afterText = afterText.replace(/^(\s*["“]?)([a-z])/, (_, lead, letter) => lead + letter.toUpperCase())
+    flashRow(index, beforeText, beforeChanged)
+    flashRow(index + 1, afterText, afterChanged)
     const newBlock = { type: "utterance", ...guessOtherSpeaker(blocks, index), text: afterText, qa: blocks[index]?.qa, start_ms: blocks[index]?.end_ms ?? 0, end_ms: blocks[index]?.end_ms ?? 0 }
     const updated = blocks.map((b, i) => i === index ? { ...b, text: beforeText } : b)
     const withNew = [...updated.slice(0, index + 1), newBlock, ...updated.slice(index + 1)]
@@ -1196,6 +1219,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   actionsRef.current = {
     openRenameOne, splitUtterance, mergeIntoPrevious, focusAdjacentBlock, setInsertMenuIndex,
     insertBlock, deleteBlock, toggleQaFrom, setSelectedIndex, handleTextChange, saveBlocksNow,
+    handleAutoEdit, endFlash,
   }
   function rowHandlers(i) {
     const a = () => actionsRef.current
@@ -1212,6 +1236,8 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
       onToggleQa: (...args) => a().toggleQaFrom(...args),
       onSelect: () => a().setSelectedIndex(i),
       onTextChange: (...args) => a().handleTextChange(...args),
+      onAutoEdit: (...args) => a().handleAutoEdit(...args),
+      onFlashEnd: (...args) => a().endFlash(...args),
       onTextBlur: (...args) => a().saveBlocksNow(...args),
     }
   }
@@ -1352,6 +1378,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
             insertMenuOpen={insertMenuIndex === i}
             segmentMap={segmentMap}
             macros={macroMap}
+            flash={flashes[i]}
             isSelected={selectedIndex === i}
             textareaRef={i === firstUtteranceIndex ? firstUtteranceRef : null}
           />
