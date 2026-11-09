@@ -35,13 +35,13 @@ function isKnown(speller, word, accepted) {
   const w = word.replace(/’/g, "'")
   if (w.length < 2 || accepted.has(w.toLowerCase())) return true
   if (speller.correct(w) || (w === w.toUpperCase() && speller.correct(w.toLowerCase()))) return true
-  // A possessive of a known word ("Jayden's" once "Jayden" is in the dictionary)
+  // A possessive of a known or ignored word ("Jayden's" once "Jayden" is ignored)
   if (/'s$/i.test(w)) return isKnown(speller, w.slice(0, -2), accepted)
   // A hyphenated word is fine when each part is ("well-known", "Vargas-Bermudez" once both names are accepted)
   return w.includes("-") && w.split("-").every(part => isKnown(speller, part, accepted))
 }
 
-// `accepted`: lowercase words the user added to their dictionary or ignored
+// `accepted`: lowercase words the user chose to ignore
 export function spellingIssues(text, speller, accepted) {
   const issues = []
   for (const m of text.matchAll(WORD)) {
@@ -55,17 +55,36 @@ export function spellingSuggestions(speller, word) {
   return speller.suggest(word.replace(/’/g, "'")).slice(0, 4)
 }
 
-// All issues in the transcript, in order, as { index, start, end, word }. Blocks keep their
-// identity until edited, so cached results are reused for every block that hasn't changed.
-export function makeIssueFinder(speller, accepted) {
+// The same speaker twice in a row: usually one turn split in two, or a mislabeled speaker. Only
+// directly adjacent utterances count (a pause or other block between them is fine). An ignored
+// pair is remembered by its key, which survives edits to the text.
+export function sameSpeakerKey(block) {
+  return `${block.speaker_id}@${block.start_ms}`
+}
+
+function isSameSpeakerAgain(blocks, index, ignoredPairs) {
+  const block = blocks[index], prev = blocks[index - 1]
+  return index > 0 && block.type === "utterance" && prev.type === "utterance"
+    && block.speaker_id === prev.speaker_id && !ignoredPairs.has(sameSpeakerKey(block))
+}
+
+// All issues in the transcript, in order, as { check, index, start, end, word? }:
+// check "spelling" (a word), or "same_speaker" (the utterance repeating the speaker before it).
+// Blocks keep their identity until edited, so spelling results are cached per block and only
+// changed blocks are checked again.
+export function makeIssueFinder(speller, accepted, ignoredPairs) {
   const cache = new WeakMap()
   return blocks => blocks.flatMap((block, index) => {
-    if (typeof block.text !== "string" || !block.text) return []
-    let issues = cache.get(block)
-    if (!issues) {
-      issues = spellingIssues(block.text, speller, accepted)
-      cache.set(block, issues)
+    const found = []
+    if (isSameSpeakerAgain(blocks, index, ignoredPairs)) found.push({ check: "same_speaker", index, start: 0, end: 0 })
+    if (typeof block.text === "string" && block.text) {
+      let words = cache.get(block)
+      if (!words) {
+        words = spellingIssues(block.text, speller, accepted)
+        cache.set(block, words)
+      }
+      found.push(...words.map(issue => ({ ...issue, check: "spelling", index })))
     }
-    return issues.map(issue => ({ ...issue, index }))
+    return found
   })
 }

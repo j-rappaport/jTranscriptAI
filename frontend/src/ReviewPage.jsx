@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo, Fragment, memo } from "react"
 import { BrandLogo } from "./App"
 import { typingEdit, splitEdit, quoteSelection } from "./autoEdit"
-import { loadSpeller, makeIssueFinder, spellingSuggestions } from "./checks"
+import { loadSpeller, makeIssueFinder, spellingSuggestions, sameSpeakerKey } from "./checks"
 
 const API = import.meta.env.VITE_API_URL
 
@@ -142,26 +142,39 @@ function JobNameInput({ name, onRename }) {
   )
 }
 
-// Check for errors: the floating panel in the top right. Its buttons don't take focus, so the
-// misspelled word stays selected in the transcript and typing replaces it.
-function ErrorCheckPanel({ loading, issue, number, total, suggestions, onReplace, onIgnore, onAdd, onNext, onClose }) {
+// Check for errors: the floating panel in the top right, stepping through every kind of issue
+// (checks.js) in transcript order, with the actions that fit each. Its buttons don't take
+// focus, so a misspelled word stays selected in the transcript and typing replaces it.
+const CHECK_LABELS = { spelling: "Spelling", same_speaker: "Duplicate speaker" }
+
+function ErrorCheckPanel({ loading, issue, number, total, suggestions, onReplace, onIgnore, onMerge, onChangeSpeaker, onNext, onClose }) {
   const btn = { fontSize: 12, padding: "4px 10px", borderRadius: 3, border: "1px solid #b0b0b0", background: "white", color: "#333", cursor: "pointer" }
   const keepFocus = e => e.preventDefault()
+  const next = <button onMouseDown={keepFocus} onClick={onNext} style={{ ...btn, marginLeft: "auto", background: "#1a4480", borderColor: "#1a4480", color: "white" }}>Next →</button>
   return (
     <div style={{
-      position: "fixed", top: 16, right: 16, zIndex: 260, width: 280, background: "white",
+      position: "fixed", top: 16, right: 16, zIndex: 260, width: 290, background: "white",
       border: "1px solid #c9c9c9", borderRadius: 4, boxShadow: "0 6px 20px rgba(0,0,0,0.15)", padding: "12px 14px",
       fontFamily: "'Public Sans', Arial, sans-serif",
     }}>
       <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
-        <span style={{ ...INFO_LABEL_STYLE, color: "#888" }}>Spelling</span>
+        <span style={{ ...INFO_LABEL_STYLE, color: "#888" }}>{issue ? CHECK_LABELS[issue.check] : "Errors"}</span>
         {!loading && total > 0 && <span style={{ marginLeft: 8, fontSize: 12, color: "#555" }}>{number} / {total}</span>}
         <button onMouseDown={keepFocus} onClick={onClose} title="Close" style={{ marginLeft: "auto", border: "none", background: "none", color: "#999", cursor: "pointer", fontSize: 16, lineHeight: 1 }}>×</button>
       </div>
       {loading ? (
         <div style={{ fontSize: 13, color: "#888" }}>Loading dictionary…</div>
       ) : !issue ? (
-        <div style={{ fontSize: 13, color: "#166534" }}>No spelling errors found.</div>
+        <div style={{ fontSize: 13, color: "#166534" }}>No errors found.</div>
+      ) : issue.check === "same_speaker" ? (
+        <>
+          <div style={{ display: "flex", gap: 4 }}>
+            <button onMouseDown={keepFocus} onClick={onMerge} title="Join this utterance onto the previous one" style={btn}>Merge</button>
+            <button onMouseDown={keepFocus} onClick={onChangeSpeaker} style={btn}>Change speaker</button>
+            <button onMouseDown={keepFocus} onClick={onIgnore} title="Ignore until the page is reloaded" style={btn}>Ignore</button>
+            {next}
+          </div>
+        </>
       ) : (
         <>
           <div style={{ fontSize: 15, fontWeight: 600, color: "#b42318", marginBottom: 8 }}>{issue.word}</div>
@@ -174,8 +187,7 @@ function ErrorCheckPanel({ loading, issue, number, total, suggestions, onReplace
           )}
           <div style={{ display: "flex", gap: 4 }}>
             <button onMouseDown={keepFocus} onClick={onIgnore} title="Ignore this word until the page is reloaded" style={btn}>Ignore</button>
-            <button onMouseDown={keepFocus} onClick={onAdd} title="Add to your dictionary, for every transcript" style={btn}>Add to dictionary</button>
-            <button onMouseDown={keepFocus} onClick={onNext} style={{ ...btn, marginLeft: "auto", background: "#1a4480", borderColor: "#1a4480", color: "white" }}>Next →</button>
+            {next}
           </div>
         </>
       )}
@@ -768,13 +780,13 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   // errorCheck is null when closed, else { speller (null while the dictionary loads), pos }; the
   // current issue is the first at or after pos, wrapping to the start.
   const [errorCheck, setErrorCheck] = useState(null)
-  const [spellingWords, setSpellingWords] = useState([])  // the user's own dictionary, in /settings
   const [ignoredWords, setIgnoredWords] = useState([])    // ignored until the page is reloaded
+  const [ignoredSpeakerPairs, setIgnoredSpeakerPairs] = useState([])  // likewise, by sameSpeakerKey
   const [selectIssueRequest, setSelectIssueRequest] = useState(0)
   const speller = errorCheck?.speller
   const findIssues = useMemo(
-    () => speller && makeIssueFinder(speller, new Set([...spellingWords, ...ignoredWords].map(w => w.toLowerCase()))),
-    [speller, spellingWords, ignoredWords])
+    () => speller && makeIssueFinder(speller, new Set(ignoredWords.map(w => w.toLowerCase())), new Set(ignoredSpeakerPairs)),
+    [speller, ignoredWords, ignoredSpeakerPairs])
   const issues = useMemo(() => (findIssues && blocks ? findIssues(blocks) : []), [findIssues, blocks])
   const issueRows = useMemo(() => new Set(issues.map(i => i.index)), [issues])
   const pos = errorCheck?.pos ?? { index: 0, start: 0 }
@@ -782,7 +794,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   if (currentIssueNumber === -1 && issues.length) currentIssueNumber = 0
   const currentIssue = issues[currentIssueNumber] ?? null
   const issueSuggestions = useMemo(
-    () => (speller && currentIssue ? spellingSuggestions(speller, currentIssue.word) : []),
+    () => (speller && currentIssue?.check === "spelling" ? spellingSuggestions(speller, currentIssue.word) : []),
     [speller, currentIssue?.word])  // eslint-disable-line react-hooks/exhaustive-deps
 
   // Select the current issue's word (after opening the check, Next, or a panel action), so typing replaces it.
@@ -940,7 +952,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
         .then(data => { setAudioAvailable(data.available); setAudioUrl(data.url) })
       fetch(`${API}/settings`, { headers })
         .then(r => r.json())
-        .then(settings => { setMacros(settings.macros || []); setSpellingWords(settings.spelling_words || []) })
+        .then(settings => setMacros(settings.macros || []))
         .catch(() => {})
     }
     load()
@@ -967,22 +979,26 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     setSelectIssueRequest(n => n + 1)
   }
 
-  function ignoreIssueWord() {
-    setIgnoredWords(w => [...w, currentIssue.word])
+  function ignoreIssue() {
+    if (currentIssue.check === "same_speaker") {
+      setIgnoredSpeakerPairs(p => [...p, sameSpeakerKey(blocksRef.current[currentIssue.index])])
+    } else {
+      setIgnoredWords(w => [...w, currentIssue.word])
+    }
     setSelectIssueRequest(n => n + 1)
   }
 
-  async function addIssueWordToDictionary() {
-    const list = [...spellingWords, currentIssue.word.replace(/’/g, "'")]
-    setSpellingWords(list)
-    setSelectIssueRequest(n => n + 1)
-    const headers = await authHeaders()
-    fetch(`${API}/settings`, {
-      method: "PUT",
-      headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify({ spelling_words: list }),
-    }).catch(() => alert("Failed to save the word to your dictionary"))
+  // Same speaker twice: join the utterance onto the one before (with a space), cursor at the join
+  function mergeIssueUtterance() {
+    const { index } = currentIssue
+    mergeIntoPrevious(index, " " + blocksRef.current[index].text.trimStart())
   }
+
+  function changeIssueSpeaker() {
+    openSpeakerPicker(currentIssue.index, blocksRef.current[currentIssue.index])
+  }
+
+
 
   async function saveMacros(list) {
     setMacros(list)
@@ -1553,8 +1569,9 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
           total={issues.length}
           suggestions={issueSuggestions}
           onReplace={replaceIssue}
-          onIgnore={ignoreIssueWord}
-          onAdd={addIssueWordToDictionary}
+          onIgnore={ignoreIssue}
+          onMerge={mergeIssueUtterance}
+          onChangeSpeaker={changeIssueSpeaker}
           onNext={nextIssue}
           onClose={() => setErrorCheck(null)}
         />
