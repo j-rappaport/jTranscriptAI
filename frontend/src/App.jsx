@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react"
 import { ClerkProvider, useAuth, SignIn, UserButton } from "@clerk/clerk-react"
-import ReviewPage from "./ReviewPage"
+import ReviewPage from "./review/ReviewPage"
 
 const API = import.meta.env.VITE_API_URL
 const CLERK_PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
