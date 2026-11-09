@@ -606,24 +606,28 @@ def _clock(t):
 
 
 def _closing_lines(blocks, info, segment_map):
-    """The two closing lines: "(Conclusion of Grand Jury proceedings," /
-    "Volume 1, 10-8-26 at 12:20 p.m.)". The end time is the real clock time of the last
-    utterance, known for TRM recordings (segment_map); unknown parts are left as ___."""
+    """The closing lines: "(Conclusion of Grand Jury proceedings," / "Volume 1, 10-8-26 at
+    12:20 p.m.)". The end time is the real clock time of the last utterance, known for TRM
+    recordings (segment_map). Unknown parts are left out; with none known it's one line,
+    "(Conclusion of Grand Jury proceedings.)"."""
     info = info or {}
     kind = "Grand Jury proceedings" if info.get("type") == "grand_jury" else "proceedings"
     try:
         d = datetime.strptime(info.get("date") or "", "%Y-%m-%d")
         date = f"{d.month}-{d.day}-{d:%y}"
     except ValueError:
-        date = "___"
-    time = "___"
+        date = None
+    time = None
     end_ms = max((b.get("end_ms") or 0 for b in blocks if b.get("type", "utterance") == "utterance"), default=0)
     if segment_map and end_ms:
         seg = next((s for s in segment_map if end_ms <= s["end_ms"]), segment_map[-1])
         # local_start_ms is local wall-clock time stored as if it were UTC
         time = _clock(datetime.fromtimestamp((seg["local_start_ms"] + end_ms - seg["start_ms"]) / 1000, timezone.utc))
-    volume = f"Volume {info['volume']}, " if info.get("volume") else ""
-    return [f"(Conclusion of {kind},", f"{volume}{date} at {time})"]
+    when = " at ".join(p for p in (date, time) if p)
+    details = ", ".join(p for p in (f"Volume {info['volume']}" if info.get("volume") else None, when) if p)
+    if not details:
+        return [f"(Conclusion of {kind}.)"]
+    return [f"(Conclusion of {kind},", f"{details})"]
 
 
 def generate_docx(blocks, info=None, segment_map=None):
