@@ -12,9 +12,10 @@ const NOT_SENTENCE_END = /\b(?:[ap]\.m|e\.g|i\.e|etc|vs|approx)\.\s+$/i
 
 // The word just finished (before the cursor): a macro expands, kept as written except for a
 // capital at a sentence start ("mhm" -> "Mm-hmm"; "(indiscernible)" never changes); otherwise a
-// word starting a sentence gets a capital. A sentence starts after . ? ! and a space, or with
-// the only text in the block. Returns { before, changed } or null when nothing applies.
-function finishWord(before, after, macros) {
+// word starting a sentence gets a capital, as does "i" on its own ("i", "i'm", "i'll"...). A
+// sentence starts after . ? ! and a space, or with the only text in the block. `key` is what
+// finished the word, if typed. Returns { before, changed } or null when nothing applies.
+function finishWord(before, after, macros, key) {
   const word = before.match(/(?:^|\s)(\S+)$/)?.[1]
   if (!word) return null
   const head = before.slice(0, before.length - word.length)
@@ -24,8 +25,11 @@ function finishWord(before, after, macros) {
     if (startsSentence && /^[a-z]/.test(expansion)) expansion = expansion[0].toUpperCase() + expansion.slice(1)
     return { before: head + expansion, changed: [head.length, head.length + expansion.length] }
   }
+  // First-person "I" (and its contractions), but not the "i" of "i.e." while it's being typed
+  const pronoun = word.match(/^["“(]*i(?:['’](?:m|ll|ve|d))?$/)
   const letter = word.match(/^["“(]*([a-z])/)
-  if (letter && startsSentence) {
+  const bareI = /^["“(]*i$/.test(word)
+  if (letter && (startsSentence || (pronoun && !(bareI && key === ".")))) {
     const at = head.length + letter[0].length - 1
     return { before: before.slice(0, at) + letter[1].toUpperCase() + before.slice(at + 1), changed: [at, at + 1] }
   }
@@ -53,7 +57,7 @@ export function typingEdit(value, s, en, key, macros) {
   let before = value.slice(0, s)
   let after = value.slice(en)
   const changed = []
-  const finished = s === en ? finishWord(before, after, macros) : null
+  const finished = s === en ? finishWord(before, after, macros, key) : null
   if (finished) {
     before = finished.before
     changed.push(finished.changed)
@@ -76,6 +80,20 @@ export function typingEdit(value, s, en, key, macros) {
     }
   }
   return changed.length ? { text: before + key + after, caret: before.length + 1, changed } : null
+}
+
+// Ctrl+' with text selected: quotes around it, with its first word capitalized ("go away" ->
+// "\"Go away\""). Spaces at the edges of the selection stay outside the quotes. Returns
+// { text, caret, changed } with the cursor after the closing quote, or null with no selection.
+export function quoteSelection(value, s, en) {
+  const selected = value.slice(s, en)
+  const inner = selected.trim()
+  if (!inner) return null
+  const lead = selected.length - selected.trimStart().length
+  const quoted = '"' + inner.replace(/^([("“'[]*)([a-z])/, (_, p, letter) => p + letter.toUpperCase()) + '"'
+  const start = s + lead
+  const text = value.slice(0, start) + quoted + value.slice(start + inner.length)
+  return { text, caret: start + quoted.length, changed: [[start, start + quoted.length]] }
 }
 
 // Splitting an utterance at `cursor` with Enter: the word before the cursor is finished; if the

@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@clerk/clerk-react": "^5.61.6",
+    "dictionary-en": "^4.0.0",
+    "nspell": "^2.1.5",
     "react": "^19.2.5",
     "react-dom": "^19.2.5"
   },

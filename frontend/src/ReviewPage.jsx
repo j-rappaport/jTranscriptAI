@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useMemo, Fragment, memo } from "react"
 import { BrandLogo } from "./App"
-import { typingEdit, splitEdit } from "./autoEdit"
+import { typingEdit, splitEdit, quoteSelection } from "./autoEdit"
+import { loadSpeller, makeIssueFinder, spellingSuggestions } from "./checks"
 
 const API = import.meta.env.VITE_API_URL
 
@@ -15,6 +16,7 @@ const SHORTCUTS = [
   { keys: "Enter",      desc: "New utterance at cursor" },
   { keys: "Shift+Enter", desc: "New line within block" },
   { keys: "F2",         desc: "Select speaker" },
+  { keys: "Ctrl+'",     desc: "Put quotes around the selected text" },
   { keys: "Backspace",  desc: "At start: merge into previous block; when empty: delete block" },
   { keys: "Ctrl+Z",     desc: "Undo" },
   { keys: "Ctrl+Y",     desc: "Redo" },
@@ -140,7 +142,48 @@ function JobNameInput({ name, onRename }) {
   )
 }
 
-function TranscriptInfo({ info, onChange, onRunOptional, jobName, onRename }) {
+// Check for errors: the floating panel in the top right. Its buttons don't take focus, so the
+// misspelled word stays selected in the transcript and typing replaces it.
+function ErrorCheckPanel({ loading, issue, number, total, suggestions, onReplace, onIgnore, onAdd, onNext, onClose }) {
+  const btn = { fontSize: 12, padding: "4px 10px", borderRadius: 3, border: "1px solid #b0b0b0", background: "white", color: "#333", cursor: "pointer" }
+  const keepFocus = e => e.preventDefault()
+  return (
+    <div style={{
+      position: "fixed", top: 16, right: 16, zIndex: 260, width: 280, background: "white",
+      border: "1px solid #c9c9c9", borderRadius: 4, boxShadow: "0 6px 20px rgba(0,0,0,0.15)", padding: "12px 14px",
+      fontFamily: "'Public Sans', Arial, sans-serif",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
+        <span style={{ ...INFO_LABEL_STYLE, color: "#888" }}>Spelling</span>
+        {!loading && total > 0 && <span style={{ marginLeft: 8, fontSize: 12, color: "#555" }}>{number} / {total}</span>}
+        <button onMouseDown={keepFocus} onClick={onClose} title="Close" style={{ marginLeft: "auto", border: "none", background: "none", color: "#999", cursor: "pointer", fontSize: 16, lineHeight: 1 }}>×</button>
+      </div>
+      {loading ? (
+        <div style={{ fontSize: 13, color: "#888" }}>Loading dictionary…</div>
+      ) : !issue ? (
+        <div style={{ fontSize: 13, color: "#166534" }}>No spelling errors found.</div>
+      ) : (
+        <>
+          <div style={{ fontSize: 15, fontWeight: 600, color: "#b42318", marginBottom: 8 }}>{issue.word}</div>
+          {suggestions.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 10 }}>
+              {suggestions.map(sug => (
+                <button key={sug} onMouseDown={keepFocus} onClick={() => onReplace(sug)} style={{ ...btn, borderColor: "#1a4480", color: "#1a4480" }}>{sug}</button>
+              ))}
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 4 }}>
+            <button onMouseDown={keepFocus} onClick={onIgnore} title="Ignore this word until the page is reloaded" style={btn}>Ignore</button>
+            <button onMouseDown={keepFocus} onClick={onAdd} title="Add to your dictionary, for every transcript" style={btn}>Add to dictionary</button>
+            <button onMouseDown={keepFocus} onClick={onNext} style={{ ...btn, marginLeft: "auto", background: "#1a4480", borderColor: "#1a4480", color: "white" }}>Next →</button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function TranscriptInfo({ info, onChange, onRunOptional, onCheckErrors, jobName, onRename }) {
   const field = (label, input) => (
     <label style={{ display: "flex", flexDirection: "column", gap: 3 }}>
       <span style={INFO_LABEL_STYLE}>{label}</span>
@@ -175,6 +218,9 @@ function TranscriptInfo({ info, onChange, onRunOptional, jobName, onRename }) {
               {p.label}
             </button>
           ))}
+          <button onClick={onCheckErrors} style={{ ...INFO_INPUT_STYLE, cursor: "pointer", color: "#1a4480", borderColor: "#1a4480" }}>
+            Check for errors
+          </button>
         </div>
       </div>
     </div>
@@ -278,6 +324,24 @@ function focusElementAt(el, pos) {
 
 function focusBlockText(index, selector) {
   focusElementAt(document.querySelector(`[data-block-index="${index}"] ${selector}`), 0)
+}
+
+// Where the cursor was in each block's text when it last left, so coming back without clicking
+// into the text (clicking the row, closing the speaker picker or macro editor) returns there
+// rather than to the start. Keyed by block index, so it's cleared when blocks are added or removed.
+const caretMemory = { lastIndex: null, byIndex: new Map() }
+
+function rememberCaret(index, pos) {
+  caretMemory.lastIndex = index
+  caretMemory.byIndex.set(index, pos)
+}
+
+function returnToBlockText(index) {
+  focusElementAt(document.querySelector(`[data-block-index="${index}"] textarea`), caretMemory.byIndex.get(index) ?? 0)
+}
+
+function returnToLastText() {
+  if (caretMemory.lastIndex !== null) returnToBlockText(caretMemory.lastIndex)
 }
 
 // The menu opens below its ☰ button, or above it when it would run off the bottom of the screen
@@ -429,7 +493,7 @@ function UtteranceText({ index, text, onTextChange, onAutoEdit, flash, onFlashEn
         ref={textareaRef}
         value={text}
         onChange={e => onTextChange(e.target.value)}
-        onBlur={onTextBlur}
+        onBlur={e => { rememberCaret(index, e.target.selectionStart); onTextBlur() }}
         onFocus={onSelect}
         onKeyDown={e => {
           const ta = e.target
@@ -443,6 +507,18 @@ function UtteranceText({ index, text, onTextChange, onAutoEdit, flash, onFlashEn
             e.stopPropagation()
             onTextChange(lastAuto.plain.text)
             requestAnimationFrame(() => ta.setSelectionRange(lastAuto.plain.caret, lastAuto.plain.caret))
+            return
+          }
+          if (e.ctrlKey && e.key === "'") {
+            // Ctrl+' quotes the selected text (autoEdit.js); Ctrl+Z right after puts it back as it was
+            e.preventDefault()
+            const { selectionStart: s, selectionEnd: en } = ta
+            const edit = quoteSelection(ta.value, s, en)
+            if (edit) {
+              lastAutoEditRef.current = { text: edit.text, caret: edit.caret, plain: { text: ta.value, caret: en } }
+              onAutoEdit(edit.text, edit.changed)
+              requestAnimationFrame(() => ta.setSelectionRange(edit.caret, edit.caret))
+            }
             return
           }
           if (!e.ctrlKey && !e.altKey && !e.metaKey) {
@@ -495,8 +571,10 @@ function UtteranceText({ index, text, onTextChange, onAutoEdit, flash, onFlashEn
 }
 
 // Memoized: a row redraws only when its own props change (see rowHandlers in ReviewPage)
-const BlockRow = memo(function BlockRow({ block, index, role, sectionIndex, isSelected, onSelect, onTextChange, onTextBlur, onRenameOne, onSplitHere, onMergeIntoPrevious, onFocusNext, onFocusPrev, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete, onToggleQa, segmentMap, textareaRef, macros, flash, onAutoEdit, onFlashEnd }) {
-  const rowBg = isSelected ? "#dcfce7" : (sectionIndex % 2 === 0 ? "white" : "#fafafa")
+const BlockRow = memo(function BlockRow({ block, index, role, sectionIndex, isSelected, onSelect, onTextChange, onTextBlur, onRenameOne, onSplitHere, onMergeIntoPrevious, onFocusNext, onFocusPrev, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete, onToggleQa, segmentMap, textareaRef, macros, flash, onAutoEdit, onFlashEnd, checkMark }) {
+  // checkMark: "error" while Check for errors finds an issue here, "current" for the one being fixed
+  const rowBg = checkMark === "current" ? "#fbd0d0" : checkMark === "error" ? "#fdeeee"
+    : isSelected ? "#dcfce7" : (sectionIndex % 2 === 0 ? "white" : "#fafafa")
 
   const rowStyle = {
     display: "grid",
@@ -548,7 +626,7 @@ const BlockRow = memo(function BlockRow({ block, index, role, sectionIndex, isSe
     return (
       <div
         style={rowStyle}
-        onClick={() => { onSelect(); focusBlockText(index, "textarea") }}
+        onClick={() => { onSelect(); returnToBlockText(index) }}
         data-block-index={index}
       >
         <div>{renderInsertBtn(false)}</div>
@@ -583,7 +661,7 @@ const BlockRow = memo(function BlockRow({ block, index, role, sectionIndex, isSe
   return (
     <div
       style={rowStyle}
-      onClick={() => { onSelect(); focusBlockText(index, "textarea") }}
+      onClick={() => { onSelect(); returnToBlockText(index) }}
       data-block-index={index}
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -684,6 +762,39 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
   const [flashes, setFlashes] = useState({})  // block index -> { id, text, ranges } while an automatic change is flashed
   const flashIdRef = useRef(0)
   const macroMap = useMemo(() => new Map(macros.map(m => [m.trigger, m.expansion])), [macros])
+
+  // Check for errors (checks.js): a floating panel steps through issues one at a time, rows with
+  // issues are tinted, and the list is rechecked on every change (only changed blocks are re-scanned).
+  // errorCheck is null when closed, else { speller (null while the dictionary loads), pos }; the
+  // current issue is the first at or after pos, wrapping to the start.
+  const [errorCheck, setErrorCheck] = useState(null)
+  const [spellingWords, setSpellingWords] = useState([])  // the user's own dictionary, in /settings
+  const [ignoredWords, setIgnoredWords] = useState([])    // ignored until the page is reloaded
+  const [selectIssueRequest, setSelectIssueRequest] = useState(0)
+  const speller = errorCheck?.speller
+  const findIssues = useMemo(
+    () => speller && makeIssueFinder(speller, new Set([...spellingWords, ...ignoredWords].map(w => w.toLowerCase()))),
+    [speller, spellingWords, ignoredWords])
+  const issues = useMemo(() => (findIssues && blocks ? findIssues(blocks) : []), [findIssues, blocks])
+  const issueRows = useMemo(() => new Set(issues.map(i => i.index)), [issues])
+  const pos = errorCheck?.pos ?? { index: 0, start: 0 }
+  let currentIssueNumber = issues.findIndex(i => i.index > pos.index || (i.index === pos.index && i.start >= pos.start))
+  if (currentIssueNumber === -1 && issues.length) currentIssueNumber = 0
+  const currentIssue = issues[currentIssueNumber] ?? null
+  const issueSuggestions = useMemo(
+    () => (speller && currentIssue ? spellingSuggestions(speller, currentIssue.word) : []),
+    [speller, currentIssue?.word])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Select the current issue's word (after opening the check, Next, or a panel action), so typing replaces it.
+  // Not after ordinary typing: fixing a word by hand shouldn't throw the cursor elsewhere.
+  useEffect(() => {
+    if (!selectIssueRequest || !currentIssue) return
+    const ta = document.querySelector(`[data-block-index="${currentIssue.index}"] textarea`)
+    if (!ta) return
+    ta.closest("[data-block-index]").scrollIntoView({ block: "center", behavior: "smooth" })
+    ta.focus({ preventScroll: true })
+    ta.setSelectionRange(currentIssue.start, currentIssue.end)
+  }, [selectIssueRequest])  // eslint-disable-line react-hooks/exhaustive-deps
   const [info, setInfo] = useState(EMPTY_INFO)
   const infoRef = useRef(EMPTY_INFO)
   const infoSaveTimerRef = useRef(null)
@@ -696,6 +807,8 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     return () => el.removeEventListener("timeupdate", onTimeUpdate)
   }, [audioAvailable, loading])
   useEffect(() => { blocksRef.current = blocks }, [blocks])
+  // Remembered cursor spots are by block index: forget them when blocks are added or removed, or another job opens
+  useEffect(() => { caretMemory.byIndex.clear(); caretMemory.lastIndex = null }, [blocks?.length, jobId])
   useEffect(() => { renameTargetRef.current = renameTarget }, [renameTarget])
   useEffect(() => { if (renameTarget && modalRef.current) modalRef.current.focus() }, [renameTarget])
   useEffect(() => { selectedIndexRef.current = selectedIndex }, [selectedIndex])
@@ -827,15 +940,54 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
         .then(data => { setAudioAvailable(data.available); setAudioUrl(data.url) })
       fetch(`${API}/settings`, { headers })
         .then(r => r.json())
-        .then(settings => setMacros(settings.macros || []))
+        .then(settings => { setMacros(settings.macros || []); setSpellingWords(settings.spelling_words || []) })
         .catch(() => {})
     }
     load()
   }, [jobId])
 
+  async function startErrorCheck() {
+    setErrorCheck({ speller: null, pos: { index: 0, start: 0 } })
+    const loaded = await loadSpeller()
+    setErrorCheck(c => c && { ...c, speller: loaded })
+    setSelectIssueRequest(n => n + 1)
+  }
+
+  function nextIssue() {
+    if (!currentIssue) return
+    setErrorCheck(c => ({ ...c, pos: { index: currentIssue.index, start: currentIssue.start + 1 } }))
+    setSelectIssueRequest(n => n + 1)
+  }
+
+  function replaceIssue(replacement) {
+    const issue = currentIssue
+    const text = blocksRef.current[issue.index].text
+    handleTextChange(issue.index, text.slice(0, issue.start) + replacement + text.slice(issue.end))
+    setErrorCheck(c => ({ ...c, pos: { index: issue.index, start: issue.start + replacement.length } }))
+    setSelectIssueRequest(n => n + 1)
+  }
+
+  function ignoreIssueWord() {
+    setIgnoredWords(w => [...w, currentIssue.word])
+    setSelectIssueRequest(n => n + 1)
+  }
+
+  async function addIssueWordToDictionary() {
+    const list = [...spellingWords, currentIssue.word.replace(/’/g, "'")]
+    setSpellingWords(list)
+    setSelectIssueRequest(n => n + 1)
+    const headers = await authHeaders()
+    fetch(`${API}/settings`, {
+      method: "PUT",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ spelling_words: list }),
+    }).catch(() => alert("Failed to save the word to your dictionary"))
+  }
+
   async function saveMacros(list) {
     setMacros(list)
     setMacrosOpen(false)
+    setTimeout(returnToLastText, 0)
     const headers = await authHeaders()
     fetch(`${API}/settings`, {
       method: "PUT",
@@ -979,6 +1131,13 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     setRenameEditing(false)
   }
 
+  // Closing the picker (OK, Cancel, Escape, clicking outside) returns the cursor to the utterance
+  function closeSpeakerPicker() {
+    const target = renameTargetRef.current
+    setRenameTarget(null)
+    if (target) setTimeout(() => returnToBlockText(target.index), 0)
+  }
+
   function openRenameOne(index) {
     openSpeakerPicker(index, blocks[index])
   }
@@ -997,7 +1156,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
       return b
     })
     setBlocks(updated)
-    setRenameTarget(null)
+    closeSpeakerPicker()
     putBlocks(updated)
   }
 
@@ -1349,7 +1508,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
         )}
       </div>
 
-      <TranscriptInfo info={info} onChange={updateInfo} onRunOptional={runOptionalPostprocessing} jobName={jobFilename} onRename={renameJob} />
+      <TranscriptInfo info={info} onChange={updateInfo} onRunOptional={runOptionalPostprocessing} onCheckErrors={startErrorCheck} jobName={jobFilename} onRename={renameJob} />
 
       {/* No overflow clipping here, so a row's ☰ menu can extend past the last row */}
       <div style={{ background: "white", border: "1px solid #c9c9c9", borderRadius: 4 }}>
@@ -1379,13 +1538,29 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
             segmentMap={segmentMap}
             macros={macroMap}
             flash={flashes[i]}
+            checkMark={!errorCheck ? null : currentIssue?.index === i ? "current" : issueRows.has(i) ? "error" : null}
             isSelected={selectedIndex === i}
             textareaRef={i === firstUtteranceIndex ? firstUtteranceRef : null}
           />
         ))}
       </div>
 
-      {macrosOpen && <MacroEditor macros={macros} onSave={saveMacros} onClose={() => setMacrosOpen(false)} />}
+      {errorCheck && (
+        <ErrorCheckPanel
+          loading={!speller}
+          issue={currentIssue}
+          number={currentIssueNumber + 1}
+          total={issues.length}
+          suggestions={issueSuggestions}
+          onReplace={replaceIssue}
+          onIgnore={ignoreIssueWord}
+          onAdd={addIssueWordToDictionary}
+          onNext={nextIssue}
+          onClose={() => setErrorCheck(null)}
+        />
+      )}
+
+      {macrosOpen && <MacroEditor macros={macros} onSave={saveMacros} onClose={() => { setMacrosOpen(false); setTimeout(returnToLastText, 0) }} />}
 
       {stale && (
         <div style={{
@@ -1428,7 +1603,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
 
         function handleModalKey(e) {
           e.stopPropagation()
-          if (e.key === "Escape") { setRenameTarget(null); return }
+          if (e.key === "Escape") { closeSpeakerPicker(); return }
           if (e.key === "Enter" && !renameEditing) { applyRenameOne(); return }
           if (e.key === "ArrowDown" || e.key === "ArrowUp") {
             e.preventDefault()
@@ -1448,7 +1623,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
           <div style={{
             position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)",
             display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100
-          }} onClick={() => setRenameTarget(null)}>
+          }} onClick={() => closeSpeakerPicker()}>
             <div
               ref={modalRef}
               tabIndex={0}
@@ -1483,7 +1658,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
                           onChange={e => setRenameValue(e.target.value)}
                           onClick={e => e.stopPropagation()}
                           onDoubleClick={e => e.stopPropagation()}
-                          onKeyDown={e => { e.stopPropagation(); if (e.key === "Enter") applyRenameOne(); if (e.key === "Escape") setRenameTarget(null) }}
+                          onKeyDown={e => { e.stopPropagation(); if (e.key === "Enter") applyRenameOne(); if (e.key === "Escape") closeSpeakerPicker() }}
                           onBlur={() => modalRef.current?.focus()}
                           style={{
                             flex: 1, minWidth: 0, padding: "3px 8px", fontSize: 13, fontWeight: 500,
@@ -1521,7 +1696,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
                       onChange={e => setRenameValue(e.target.value)}
                       onClick={e => e.stopPropagation()}
                       onDoubleClick={e => e.stopPropagation()}
-                      onKeyDown={e => { e.stopPropagation(); if (e.key === "Enter") applyRenameOne(); if (e.key === "Escape") setRenameTarget(null) }}
+                      onKeyDown={e => { e.stopPropagation(); if (e.key === "Enter") applyRenameOne(); if (e.key === "Escape") closeSpeakerPicker() }}
                       onBlur={() => modalRef.current?.focus()}
                       placeholder="New speaker name"
                       style={{
@@ -1545,7 +1720,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
                   Edit
                 </button>
                 <div style={{ flex: 1 }} />
-                <button onClick={() => setRenameTarget(null)} style={{ padding: "7px 16px", borderRadius: 4, border: "1px solid #b0b0b0", background: "white", cursor: "pointer", color: "#222", fontSize: 13 }}>
+                <button onClick={() => closeSpeakerPicker()} style={{ padding: "7px 16px", borderRadius: 4, border: "1px solid #b0b0b0", background: "white", cursor: "pointer", color: "#222", fontSize: 13 }}>
                   Cancel
                 </button>
                 <button onClick={applyRenameOne} style={{ padding: "7px 16px", borderRadius: 4, border: "none", background: "#1a4480", color: "white", cursor: "pointer", fontSize: 13 }}>
