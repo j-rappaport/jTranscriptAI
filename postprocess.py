@@ -33,6 +33,38 @@ def openers_as_own_sentence(text: str) -> str:
     return text
 
 
+# Small everyday words: articles, pronouns, conjunctions, prepositions, helper verbs, fillers.
+# Mid-sentence they're never names, so a capital there is AssemblyAI's mistake. Not included:
+# "I"; "A" (spelled-out letters, "class A felony"); "May" (the month).
+_EVERYDAY_WORDS = set("""
+an the and but or nor so if then because as of in on at to for from with by about into onto over
+under after before through during until since than he she it we they you him her them us me my your
+his its our their this that these those there here is are was were be been being am do does did
+have has had will would can could should might must not no yes what when where why how who whom
+which um uh like just well oh okay yeah also even only very really now still
+""".split())
+_CAPITALIZED_WORD = re.compile(r"(?<![\w'’-])[A-Z][a-z]+(?:['’][a-z]+)?(?![\w'’-])")
+
+
+def lowercase_midsentence_words(text: str) -> str:
+    """AssemblyAI capitalizes small words in the middle of sentences ("the sergeants here And
+    then", "this is He still keeps"); they're lowercased. Words at a sentence start (after . ? !,
+    an opening quote, a colon, or starting the utterance) are left alone, as is a word followed by
+    another capitalized word or a number ("Your Honor", "The Dalles"), which can be part of a name."""
+    def fix(m):
+        word = m.group(0)
+        if re.split(r"['’]", word)[0].lower() not in _EVERYDAY_WORDS:
+            return word
+        before, after = text[:m.start()], text[m.end():]
+        if re.search(r'(^\s*|[.?!]["”’)]*\s+|["“(]\s*|:\s+)$', before):
+            return word
+        following = re.match(r"\s+([A-Z][\w'’]*|\d)", after)
+        if following and not re.fullmatch(r"I(?:['’][a-z]+)?", following.group(1)):
+            return word
+        return word[0].lower() + word[1:]
+    return _CAPITALIZED_WORD.sub(fix, text)
+
+
 # "um", "uh" and stretched spellings ("umm", "uhh", "uhm"). Hyphenated words are
 # answers, not fillers, and are kept: "uh-huh" (yes), "uh-uh" (no), "um-hum".
 _FILLER = re.compile(r"(?<![\w'-])(?:um+|uh+|uhm+)(?![\w'-])", re.I)
@@ -175,6 +207,7 @@ def remove_fillers(text: str) -> str:
 RULES = [
     em_dashes_to_double_hyphens,
     openers_as_own_sentence,  # before numbers: "Okay, 3 of them" -> "Okay. 3 of them" -> "Okay. Three of them"
+    lowercase_midsentence_words,  # after openers, which make new sentence starts ("Okay. So")
     repeats_to_double_hyphens,
     small_numbers_to_words,  # after repeats: digits are exempt from repeat-dashing ("2, 2"), words aren't
 ]
