@@ -135,6 +135,12 @@ def db_update_audio_path(job_id: str, audio_path: str):
             cur.execute("UPDATE jobs SET audio_path=%s WHERE id=%s", (audio_path, job_id))
 
 
+def db_delete_job(job_id: str):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM jobs WHERE id=%s", (job_id,))
+
+
 def db_update_filename(job_id: str, filename: str):
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -816,6 +822,21 @@ def get_all_jobs(user: str = Depends(require_auth)):
 # Transcript info filled in on the Review page; blank fields are stored as null (unspecified)
 JOB_INFO_FIELDS = ("date", "time", "type", "county", "case_number", "volume", "gj_number")
 JOB_TYPES = ("court_proceeding", "grand_jury", "interview")
+
+
+@app.delete("/jobs/{job_id}")
+def delete_job(job_id: str, user: str = Depends(require_auth)):
+    """Deletes a job and its stored audio. Not while it's still being transcribed."""
+    job = get_owned_job(job_id, user)
+    if job.get("status") in ("pending", "transcribing"):
+        raise HTTPException(status_code=409, detail="This transcription is still in progress.")
+    if job.get("audio_path"):
+        try:
+            storage_delete(job["audio_path"])
+        except Exception as e:  # the job goes either way; at worst the audio file is left over
+            print(f"Delete job {job_id}: failed to delete audio: {e}")
+    db_delete_job(job_id)
+    return {"ok": True}
 
 
 @app.patch("/jobs/{job_id}")
