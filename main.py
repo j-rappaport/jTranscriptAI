@@ -809,6 +809,9 @@ def get_owned_job(job_id: str, user: str) -> dict:
 
 @app.get("/jobs/{job_id}")
 def get_job(job_id: str, user: str = Depends(require_auth)):
+    failed = failed_jobs.get(job_id)
+    if failed and failed["user_id"] == user:  # a job that failed and was deleted (see fail_job)
+        return {"id": job_id, "status": "error", "error": failed["error"]}
     job = get_owned_job(job_id, user)
     job["blocks"] = job.pop("utterances")
     return job
@@ -966,6 +969,21 @@ async def stripe_webhook(request: Request):
 # Transcription
 # ---------------------------------------------------------------------------
 
+# Failed jobs aren't kept: fail_job deletes the job and any audio already stored, and holds the
+# error here (in memory, so lost on restart) for the upload page's polling to show.
+failed_jobs: dict = {}
+
+
+def fail_job(job_id: str, user_id: str, message: str, storage_key: str = None):
+    failed_jobs[job_id] = {"user_id": user_id, "error": message}
+    if storage_key:
+        try:
+            storage_delete(storage_key)
+        except Exception as e:
+            print(f"Failed job {job_id}: couldn't delete stored audio: {e}")
+    db_delete_job(job_id)
+
+
 def run_transcription(job_id: str, audio_path: str, storage_key: str, user_id: str, boost_words: list = []):
     try:
         size = os.path.getsize(audio_path)
@@ -975,7 +993,7 @@ def run_transcription(job_id: str, audio_path: str, storage_key: str, user_id: s
         with_upload_retries(storage_upload, storage_key, audio_path)
         db_update_audio_path(job_id, storage_key)
     except Exception as e:
-        db_update_status(job_id, "error", f"Audio upload failed: {e}")
+        fail_job(job_id, user_id, f"Audio upload failed: {e}")
         if os.path.exists(audio_path):
             os.remove(audio_path)
         return
@@ -992,7 +1010,7 @@ def run_transcription(job_id: str, audio_path: str, storage_key: str, user_id: s
             #     "After the first output, review the transcript again. Pay close attention to hallucinations, misspellings, or errors, "
             #     "and revise them like a computer performing spell and grammar checks. "
             #     "Ensure words and phrases make grammatical sense in sentences. "
-            #     "When a voice says \"Okay\" as a brief acknowledgment or interruption of another speaker, treat it as the start of a new speaker turn."
+            #     "When a voice says "Okay" as a brief acknowledgment or interruption of another speaker, treat it as the start of a new speaker turn."
             # ),
         )
         transcriber = aai.Transcriber()
@@ -1025,7 +1043,7 @@ def run_transcription(job_id: str, audio_path: str, storage_key: str, user_id: s
         db_deduct_credits(user_id, duration_ms)
 
     except Exception as e:
-        db_update_status(job_id, "error", str(e))
+        fail_job(job_id, user_id, str(e), storage_key)
     finally:
         if os.path.exists(audio_path):
             os.remove(audio_path)
