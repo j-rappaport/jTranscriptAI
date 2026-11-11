@@ -54,7 +54,8 @@ export function transcriptText(blocks) {
     if (b.type !== "utterance") continue
     if (role === "Q" && prevRole === "") lines.push(`BY ${b.speaker}:`)
     const text = normalizeSentenceSpacing(b.text)
-    lines.push(role ? `\t${role}:  ${text}` : `\t\t${b.speaker}:  ${text}`)
+    // Q/A as in the .docx (main.py): no colon, a tab before the text
+    lines.push(role ? `\t${role}\t${text}` : `\t\t${b.speaker}:  ${text}`)
     prevRole = role
   }
   return lines.join("\n")
