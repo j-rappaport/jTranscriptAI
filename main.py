@@ -969,6 +969,27 @@ async def stripe_webhook(request: Request):
 # Transcription
 # ---------------------------------------------------------------------------
 
+# AssemblyAI's prompt asks for verbatim speech, keeping the short responses it otherwise drops
+# ("mm-hmm", "yeah"), each as its own speaker turn. Measured on a proofread grand jury transcript,
+# it caught 15-16 of 55 mm-hmms instead of 6, with no loss elsewhere. A prompt can't be combined
+# with word_boost, so the user's vocabulary goes into the prompt instead.
+VERBATIM_PROMPT = (
+    "Verbatim transcript of a legal proceeding, such as a court hearing, grand jury session or "
+    "interview, with several speakers. Transcribe every word exactly as spoken, including short "
+    "responses such as mm-hmm, uh-huh, yeah, okay and no, each as its own speaker turn when a "
+    "different person says it, even when it overlaps or briefly interrupts the other speaker. "
+    "Keep repetitions and false starts."
+)
+PROMPT_VOCABULARY_LIMIT = 200  # words and phrases from the user's vocabulary
+
+
+def transcription_prompt(vocabulary: list) -> str:
+    terms = [t for t in dict.fromkeys(vocabulary) if t][:PROMPT_VOCABULARY_LIMIT]
+    if not terms:
+        return VERBATIM_PROMPT
+    return VERBATIM_PROMPT + " Words and names that may come up: " + ", ".join(terms) + "."
+
+
 # Failed jobs aren't kept: fail_job deletes the job and any audio already stored, and holds the
 # error here (in memory, so lost on restart) for the upload page's polling to show.
 failed_jobs: dict = {}
@@ -1004,14 +1025,7 @@ def run_transcription(job_id: str, audio_path: str, storage_key: str, user_id: s
         config = aai.TranscriptionConfig(
             speaker_labels=True,
             speech_models=["universal-3-5-pro", "universal-3-pro", "universal-2"],
-            word_boost=boost_words if boost_words else None,
-            # prompt=(
-            #     "Always: Transcribe speech exactly as heard. If uncertain or audio is unclear, mark as (indiscernible). "
-            #     "After the first output, review the transcript again. Pay close attention to hallucinations, misspellings, or errors, "
-            #     "and revise them like a computer performing spell and grammar checks. "
-            #     "Ensure words and phrases make grammatical sense in sentences. "
-            #     "When a voice says "Okay" as a brief acknowledgment or interruption of another speaker, treat it as the start of a new speaker turn."
-            # ),
+            prompt=transcription_prompt(boost_words),
         )
         transcriber = aai.Transcriber()
         audio_url = with_upload_retries(transcriber.upload_file, audio_path)
