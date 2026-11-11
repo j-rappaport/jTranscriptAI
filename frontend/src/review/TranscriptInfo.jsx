@@ -19,7 +19,7 @@ function JobNameInput({ name, onRename }) {
   )
 }
 
-export default function TranscriptInfo({ info, onChange, onRunOptional, onCheckErrors, jobName, onRename }) {
+export default function TranscriptInfo({ info, onChange, onRunOptional, onCheckErrors, onFind, jobName, onRename }) {
   const field = (label, input) => (
     <label style={{ display: "flex", flexDirection: "column", gap: 3 }}>
       <span style={INFO_LABEL_STYLE}>{label}</span>
@@ -56,6 +56,9 @@ export default function TranscriptInfo({ info, onChange, onRunOptional, onCheckE
           ))}
           <button onClick={onCheckErrors} style={{ ...INFO_INPUT_STYLE, cursor: "pointer", color: "#1a4480", borderColor: "#1a4480" }}>
             Check for errors
+          </button>
+          <button onClick={onFind} title="Ctrl+F" style={{ ...INFO_INPUT_STYLE, cursor: "pointer", color: "#1a4480", borderColor: "#1a4480" }}>
+            Find and replace
           </button>
         </div>
       </div>

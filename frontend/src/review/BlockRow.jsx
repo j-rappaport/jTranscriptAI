@@ -102,9 +102,10 @@ function UtteranceText({ index, text, onTextChange, onAutoEdit, flash, onFlashEn
     flash.ranges.forEach(([a, b], i) => {
       pieces.push(text.slice(pos, a))
       pieces.push(
-        <mark key={`${flash.id}-${i}`} onAnimationEnd={i === 0 ? onFlashEnd : undefined} style={{
-          color: "transparent", background: "#bcd3f0", borderRadius: 3,
-          animation: "autoFixFlash 0.7s ease-out forwards",
+        // persist: a highlight that stays (the current Find match) rather than a fading flash
+        <mark key={`${flash.id}-${i}`} onAnimationEnd={i === 0 && !flash.persist ? onFlashEnd : undefined} style={{
+          color: "transparent", borderRadius: 3,
+          ...(flash.persist ? { background: "#f5d76e" } : { background: "#bcd3f0", animation: "autoFixFlash 0.7s ease-out forwards" }),
         }}>{text.slice(a, b)}</mark>
       )
       pos = b
@@ -214,8 +215,10 @@ function UtteranceText({ index, text, onTextChange, onAutoEdit, flash, onFlashEn
 
 // Memoized: a row redraws only when its own props change (see rowHandlers in ReviewPage)
 const BlockRow = memo(function BlockRow({ block, index, role, sectionIndex, isSelected, onSelect, onTextChange, onTextBlur, onRenameOne, onSplitHere, onMergeIntoPrevious, onFocusNext, onFocusPrev, audioRef, audioAvailable, insertMenuOpen, onOpenInsertMenu, onInsert, onCloseInsertMenu, onDelete, onToggleQa, segmentMap, textareaRef, macros, flash, onAutoEdit, onFlashEnd, checkMark }) {
-  // checkMark: "error" while Check for errors finds an issue here, "current" for the one being fixed
+  // checkMark: "error" while Check for errors finds an issue here, "current" for the one being fixed;
+  // "find" / "find-current" likewise for Find and replace matches
   const rowBg = checkMark === "current" ? "#fbd0d0" : checkMark === "error" ? "#fdeeee"
+    : checkMark === "find-current" ? "#fdf0c4" : checkMark === "find" ? "#fefae8"
     : isSelected ? "#dcfce7" : (sectionIndex % 2 === 0 ? "white" : "#fafafa")
 
   const rowStyle = {

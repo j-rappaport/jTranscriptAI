@@ -11,6 +11,7 @@ const SHORTCUTS = [
   { keys: "Shift+Enter", desc: "New line within block" },
   { keys: "F2",         desc: "Select speaker" },
   { keys: "Ctrl+'",     desc: "Put quotes around the selected text" },
+  { keys: "Ctrl+F",     desc: "Find and replace" },
   { keys: "Backspace",  desc: "At start: merge into previous block; when empty: delete block" },
   { keys: "Ctrl+Z",     desc: "Undo" },
   { keys: "Ctrl+Y",     desc: "Redo" },

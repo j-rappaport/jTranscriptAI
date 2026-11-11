@@ -86,5 +86,5 @@ export default function useErrorCheck({ blocks, blocksRef, onReplaceText, onMerg
     onClose: () => setErrorCheck(null),
   }
 
-  return { start, panel, checkMark }
+  return { start, close: () => setErrorCheck(null), panel, checkMark }
 }

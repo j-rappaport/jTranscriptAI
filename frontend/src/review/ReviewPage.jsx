@@ -10,6 +10,7 @@ import useUndoHistory from "./useUndoHistory"
 import useTranscriptInfo from "./useTranscriptInfo"
 import useMacros from "./useMacros"
 import useErrorCheck from "./useErrorCheck"
+import useFindReplace from "./useFindReplace"
 import HeaderBar from "./HeaderBar"
 import AudioPanel from "./AudioPanel"
 import { SPEED_PRESETS } from "./clock"
@@ -19,6 +20,7 @@ import BlockRow from "./BlockRow"
 import SpeakerPicker from "./SpeakerPicker"
 import MacroEditor from "./MacroEditor"
 import ErrorCheckPanel from "./ErrorCheckPanel"
+import FindReplacePanel from "./FindReplacePanel"
 import ShortcutsHelp from "./ShortcutsHelp"
 
 export default function ReviewPage({ jobId, onBack, authHeaders }) {
@@ -55,6 +57,25 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     onMerge: index => mergeIntoPrevious(index, " " + blocksRef.current[index].text.trimStart()),  // joined with a space
     onChangeSpeaker: openSpeakerPicker,
   })
+  const findReplace = useFindReplace({
+    blocks, blocksRef,
+    onReplaceText: handleTextChange,
+    onReplaceAll: updated => { recordHistory(false); setBlocks(updated); putBlocks(updated) },
+  })
+
+  // Check for errors and Find and replace share the top-right corner: opening one closes the other
+  function startErrorCheck() {
+    findReplace.close()
+    errorCheck.start()
+  }
+
+  // Searches for the selected text, if any (one line of it)
+  function startFind() {
+    errorCheck.close()
+    const el = document.activeElement
+    const selected = el?.tagName === "TEXTAREA" ? el.value.slice(el.selectionStart, el.selectionEnd) : ""
+    findReplace.start(selected && !selected.includes("\n") ? selected.trim() : "")
+  }
 
   useEffect(() => { blocksRef.current = blocks }, [blocks])
   // Remembered cursor spots are by block index: forget them when blocks are added or removed, or another job opens
@@ -91,6 +112,11 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
         return
       }
       if (speakerPickerRef.current !== null) return
+      if (e.ctrlKey && (e.key === "f" || e.key === "F" || e.key === "h" || e.key === "H")) {
+        e.preventDefault()
+        actionsRef.current.startFind()
+        return
+      }
       // Form areas (info card, macro editor) keep normal keys: Tab moves between fields, Ctrl+Z undoes typing
       if (e.target.closest?.("[data-plain-keys]")) return
       const actions = actionsRef.current
@@ -437,7 +463,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
     actionsRef.current = {
       openSpeakerPicker, splitUtterance, mergeIntoPrevious, focusAdjacentBlock, setInsertMenuIndex,
       insertBlock, deleteBlock, toggleQaFrom, setSelectedIndex, handleTextChange, saveBlocksNow,
-      handleAutoEdit, endFlash, undo, redo,
+      handleAutoEdit, endFlash, undo, redo, startFind,
     }
   })
   function rowHandlers(i) {
@@ -481,7 +507,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
         />
 
         <TranscriptInfo info={info} onChange={updateInfo} onRunOptional={runOptionalPostprocessing}
-          onCheckErrors={errorCheck.start} jobName={jobFilename} onRename={renameJob} />
+          onCheckErrors={startErrorCheck} onFind={startFind} jobName={jobFilename} onRename={renameJob} />
 
         {/* No overflow clipping here, so a row's ☰ menu can extend past the last row */}
         <div style={{ background: "white", border: "1px solid #c9c9c9", borderRadius: 4 }}>
@@ -510,8 +536,8 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
               insertMenuOpen={insertMenuIndex === i}
               segmentMap={segmentMap}
               macros={macroMap}
-              flash={flashes[i]}
-              checkMark={errorCheck.checkMark(i)}
+              flash={flashes[i] ?? findReplace.highlightFor(i)}
+              checkMark={findReplace.checkMark(i) ?? errorCheck.checkMark(i)}
               isSelected={selectedIndex === i}
               textareaRef={i === firstUtteranceIndex ? firstUtteranceRef : null}
             />
@@ -519,6 +545,7 @@ export default function ReviewPage({ jobId, onBack, authHeaders }) {
         </div>
 
         {errorCheck.panel && <ErrorCheckPanel {...errorCheck.panel} />}
+        {findReplace.panel && <FindReplacePanel {...findReplace.panel} />}
 
         {macrosOpen && (
           <MacroEditor
