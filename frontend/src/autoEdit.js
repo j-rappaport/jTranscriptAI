@@ -13,13 +13,13 @@ const NOT_SENTENCE_END = /\b(?:[ap]\.m|e\.g|i\.e|etc|vs|approx)\.\s+$/i
 // The word just finished (before the cursor): a macro expands, kept as written except for a
 // capital at a sentence start ("mhm" -> "Mm-hmm"; "(indiscernible)" never changes); otherwise a
 // word starting a sentence gets a capital, as does "i" on its own ("i", "i'm", "i'll"...). A
-// sentence starts after . ? ! and a space, or with the only text in the block. `key` is what
+// sentence starts after . ? ! and a space, or at the start of the block (but not after "--"). `key` is what
 // finished the word, if typed. Returns { before, changed } or null when nothing applies.
 function finishWord(before, after, macros, key) {
   const word = before.match(/(?:^|\s)(\S+)$/)?.[1]
   if (!word) return null
   const head = before.slice(0, before.length - word.length)
-  const startsSentence = (!head.trim() && !after.trim()) || (SENTENCE_START.test(head) && !NOT_SENTENCE_END.test(head))
+  const startsSentence = !head.trim() || (SENTENCE_START.test(head) && !NOT_SENTENCE_END.test(head))
   let expansion = macros?.get(word)
   if (expansion) {
     if (startsSentence && /^[a-z]/.test(expansion)) expansion = expansion[0].toUpperCase() + expansion.slice(1)
