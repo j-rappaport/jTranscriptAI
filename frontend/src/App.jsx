@@ -1,13 +1,27 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { ClerkProvider, useAuth, SignIn, UserButton } from "@clerk/clerk-react"
 import ReviewPage from "./review/ReviewPage"
-import FileExplorer from "./home/FileExplorer"
-import UploadWindow from "./home/UploadWindow"
-import useFolders from "./home/useFolders"
-import useUpload from "./home/useUpload"
 
 const API = import.meta.env.VITE_API_URL
 const CLERK_PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
+
+function formatDuration(ms) {
+  if (!ms) return "—"
+  const total = Math.floor(ms / 1000)
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  if (h > 0) return `${h}h ${m}m`
+  if (m > 0) return `${m}m ${s}s`
+  return `${s}s`
+}
+
+function formatDate(iso) {
+  if (!iso) return "—"
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "short", day: "numeric", year: "numeric"
+  })
+}
 
 const BRAND_FONT = "'Libre Franklin', Arial, sans-serif"
 
@@ -80,6 +94,60 @@ function SignInPage() {
   )
 }
 
+const DEFAULT_BOOST_WORDS = `objection
+sustained
+overruled
+stipulation
+stipulate
+deponent
+deposition
+plaintiff
+defendant
+counsel
+attorney
+bailiff
+voir dire
+subpoena
+affidavit
+hearsay
+foundation
+speculation
+relevance
+sidebar
+recess
+redirect
+cross-examination
+direct examination
+transcript
+docket
+motion
+sworn
+affirmed
+perjury
+interrogatory
+discovery
+continuance
+indiscernible
+inaudible
+damages
+liability
+negligence
+breach
+statute
+jurisdiction
+verdict
+judgment
+ruling
+prosecutor
+defense attorney
+court reporter
+your honor
+the record
+exhibit
+testimony`
+
+const jobMenuItem = { display: "block", width: "100%", textAlign: "left", padding: "7px 14px", fontSize: 12, background: "none", border: "none", cursor: "pointer", color: "#222" }
+
 const CREDIT_PACKS = [
   { id: "30m", label: "30 min",   price: "$1"  },
   { id: "5h",  label: "5 hours",  price: "$10" },
@@ -89,49 +157,25 @@ const CREDIT_PACKS = [
 
 function HomePage() {
   const { getToken, isSignedIn, isLoaded } = useAuth()
+  const [files, setFiles] = useState([])
   const [jobId, setJobId] = useState(null)
+  const [status, setStatus] = useState(null)
+  const [error, setError] = useState(null)
+  const [uploading, setUploading] = useState(false)
+  const [dragging, setDragging] = useState(false)
   const [reviewing, setReviewing] = useState(false)
   const [jobs, setJobs] = useState([])
   const [credits, setCredits] = useState(null)
   const [showBuyCredits, setShowBuyCredits] = useState(false)
   const [buyingPack, setBuyingPack] = useState(null)
   const [paymentNotice, setPaymentNotice] = useState(null)
-  const [currentFolder, setCurrentFolder] = useState(null)  // the folder being viewed; null = Home
-  const [uploadOpen, setUploadOpen] = useState(false)
-  const [uploadFolder, setUploadFolder] = useState(null)  // where the upload in progress will be filed
+  const [boostWords, setBoostWords] = useState(() => localStorage.getItem("jt_boost_words") ?? DEFAULT_BOOST_WORDS)
+  const [vocabOpen, setVocabOpen] = useState(false)
+  const [renamingJob, setRenamingJob] = useState(null)  // { id, name } while a job name is being edited
+  const [jobMenu, setJobMenu] = useState(null)  // id of the job whose ⋯ menu is open
+  const renameCancelledRef = useRef(false)
 
-  async function authHeaders() {
-    const token = await getToken()
-    return { Authorization: `Bearer ${token}` }
-  }
-  async function fetchJobs() {
-    try {
-      const headers = await authHeaders()
-      const res = await fetch(`${API}/jobs`, { headers })
-      const data = await res.json()
-      setJobs(data)
-    } catch (e) {
-      console.error("Failed to fetch jobs", e)
-    }
-  }
-  async function fetchCredits() {
-    try {
-      const headers = await authHeaders()
-      const res = await fetch(`${API}/credits`, { headers })
-      const data = await res.json()
-      setCredits(data)
-    } catch (e) {
-      console.error("Failed to fetch credits", e)
-    }
-  }
-
-  const folders = useFolders({ authHeaders, enabled: isSignedIn })
-  const upload = useUpload({
-    authHeaders,
-    onCreated: id => { folders.moveJob(id, uploadFolder); fetchJobs() },
-    onFinished: fetchJobs,
-    onNoCredits: () => setShowBuyCredits(true),
-  })
+  useEffect(() => { localStorage.setItem("jt_boost_words", boostWords) }, [boostWords])
 
   useEffect(() => {
     const syncFromUrl = () => {
@@ -160,10 +204,30 @@ function HomePage() {
     }
   }, [isSignedIn])
 
+  async function authHeaders() {
+    const token = await getToken()
+    return { Authorization: `Bearer ${token}` }
+  }
 
-  async function renameJob(id, filename) {
+  async function fetchJobs() {
+    try {
+      const headers = await authHeaders()
+      const res = await fetch(`${API}/jobs`, { headers })
+      const data = await res.json()
+      setJobs(data)
+    } catch (e) {
+      console.error("Failed to fetch jobs", e)
+    }
+  }
+
+  async function saveJobName() {
+    if (!renamingJob) return
+    const { id, name } = renamingJob
+    setRenamingJob(null)
+    if (renameCancelledRef.current) { renameCancelledRef.current = false; return }
+    const filename = name.trim()
     const job = jobs.find(j => j.id === id)
-    if (!job) return
+    if (!filename || !job || filename === job.filename) return
     setJobs(js => js.map(j => j.id === id ? { ...j, filename } : j))
     try {
       const headers = await authHeaders()
@@ -179,16 +243,29 @@ function HomePage() {
     }
   }
 
-  async function deleteJob(id) {
+  async function deleteJob(job) {
+    if (job.status === "pending" || job.status === "transcribing") { alert("This transcription is still in progress."); return }
+    if (!window.confirm(`Delete the transcript "${job.filename}"? This can't be undone.`)) return
     const before = jobs
-    setJobs(js => js.filter(j => j.id !== id))
+    setJobs(js => js.filter(j => j.id !== job.id))
     try {
       const headers = await authHeaders()
-      const res = await fetch(`${API}/jobs/${id}`, { method: "DELETE", headers })
+      const res = await fetch(`${API}/jobs/${job.id}`, { method: "DELETE", headers })
       if (!res.ok) throw new Error((await res.json().catch(() => null))?.detail || res.status)
     } catch (e) {
       setJobs(before)
       alert(`Failed to delete the transcript: ${e.message}`)
+    }
+  }
+
+  async function fetchCredits() {
+    try {
+      const headers = await authHeaders()
+      const res = await fetch(`${API}/credits`, { headers })
+      const data = await res.json()
+      setCredits(data)
+    } catch (e) {
+      console.error("Failed to fetch credits", e)
     }
   }
 
@@ -209,15 +286,81 @@ function HomePage() {
     }
   }
 
-  // A new transcription is filed in the folder being viewed when its window opens
-  function openUploadWindow() {
-    upload.reset()
-    setUploadFolder(currentFolder)
-    setUploadOpen(true)
+  function parseFilenameTimestamp(name) {
+    const m = name.match(/_(\d{8}-\d{4})_/)
+    return m ? m[1] : name
+  }
+
+  function handleFiles(incoming) {
+    if (!incoming || incoming.length === 0) return
+    const arr = Array.from(incoming).filter(f => !f.name.toLowerCase().endsWith('.trs'))
+    if (arr.length === 0) return
+    const sorted = [...arr].sort((a, b) => {
+      const ta = parseFilenameTimestamp(a.name)
+      const tb = parseFilenameTimestamp(b.name)
+      return ta < tb ? -1 : ta > tb ? 1 : 0
+    })
+    setFiles(sorted)
+    setJobId(null)
+    setStatus(null)
+    setError(null)
+  }
+
+  async function handleUpload() {
+    if (!files.length) return
+    setUploading(true)
+    setError(null)
+    try {
+      const formData = new FormData()
+      for (const f of files) formData.append("files", f)
+      formData.append("word_boost", boostWords)
+      const headers = await authHeaders()
+      const res = await fetch(`${API}/jobs`, {
+        method: "POST",
+        headers,
+        body: formData
+      })
+      if (res.status === 402) {
+        setShowBuyCredits(true)
+        setError("No credits remaining.")
+        return
+      }
+      if (res.status === 507) {
+        const data = await res.json()
+        setError(data.detail)
+        return
+      }
+      const data = await res.json()
+      setJobId(data.job_id)
+      setStatus("pending")
+      poll(data.job_id)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  function poll(id) {
+    const iv = setInterval(async () => {
+      try {
+        const headers = await authHeaders()
+        const res = await fetch(`${API}/jobs/${id}`, { headers })
+        const data = await res.json()
+        setStatus(data.status)
+        if (data.status === "done" || data.status === "error") {
+          clearInterval(iv)
+          if (data.status === "error") setError(data.error)
+          fetchJobs()
+        }
+      } catch (e) {
+        clearInterval(iv)
+        setError(e.message)
+      }
+    }, 3000)
   }
 
   function openReview(id) {
-    setUploadOpen(false)
     setJobId(id)
     setReviewing(true)
     window.history.pushState({}, "", `/?job=${id}`)
@@ -233,17 +376,20 @@ function HomePage() {
       authHeaders={authHeaders}
       onBack={() => {
         setReviewing(false)
+        setStatus(null)
         setJobId(null)
-        upload.reset()
+        setFiles([])
         fetchJobs()
         window.history.pushState({}, "", "/")
       }}
     />
   }
 
+  const statusColor = { pending: "#1a4480", transcribing: "#1a4480", done: "#3B6D11", error: "#A32D2D" }
+  const statusBg = { pending: "#e7ecf1", transcribing: "#e7ecf1", done: "#EAF3DE", error: "#FCEBEB" }
+
   const creditsHours = credits?.credits_hours ?? null
   const lowCredits = creditsHours !== null && creditsHours < 0.5
-  const destination = ["Home", ...folders.pathTo(uploadFolder).map(f => f.name)].join(" › ")
 
   return (
     <div style={{ fontFamily: "'Public Sans', Arial, sans-serif" }}>
@@ -314,19 +460,193 @@ function HomePage() {
         </div>
       )}
 
-      <FileExplorer
-        jobs={jobs}
-        folders={folders}
-        currentFolder={currentFolder}
-        onOpenFolder={setCurrentFolder}
-        onOpenJob={openReview}
-        onRenameJob={renameJob}
-        onDeleteJob={deleteJob}
-        onNewTranscription={openUploadWindow}
-      />
+      <div style={{ background: "white", border: "1px solid #c9c9c9", borderRadius: 4, padding: 24, marginBottom: 16 }}>
+        <div
+          onDragOver={e => { e.preventDefault(); setDragging(true) }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={e => { e.preventDefault(); setDragging(false); handleFiles(e.dataTransfer.files) }}
+          onClick={() => document.getElementById("fileinput").click()}
+          style={{
+            border: `1.5px dashed ${dragging ? "#1a4480" : "#adadad"}`,
+            borderRadius: 4, padding: "36px 24px", textAlign: "center", cursor: "pointer",
+            background: dragging ? "#e7ecf1" : "transparent", transition: "all 0.15s"
+          }}
+        >
+          <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 4 }}>Drop audio file(s) here</div>
+          <div style={{ fontSize: 13, color: "#888" }}>
+            or <span style={{ color: "#1a4480", fontWeight: 500 }}>browse to upload</span>
+          </div>
+          <div style={{ fontSize: 12, color: "#aaa", marginTop: 6 }}>MP3 · TRM</div>
+          <input id="fileinput" type="file" multiple accept=".mp3,.wav,.m4a,.mp4,.aac,.flac,.trm,.trs"
+            style={{ display: "none" }} onChange={e => handleFiles(e.target.files)} />
+        </div>
+
+        {files.length > 0 && (
+          <div style={{ marginTop: 12, borderRadius: 4, overflow: "hidden", border: "1px solid #dadada" }}>
+            {files.map((f, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", background: i % 2 === 0 ? "#f7f7f7" : "#f0f0f0" }}>
+                <span style={{ fontFamily: "ui-monospace, Consolas, monospace", fontSize: 12, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
+                <span style={{ fontSize: 11, color: "#888", flexShrink: 0 }}>{(f.size / 1024 / 1024).toFixed(1)} MB</span>
+              </div>
+            ))}
+            {files.length > 1 && (
+              <div style={{ padding: "6px 14px", background: "#e8e8e8", fontSize: 11, color: "#666" }}>
+                {files.length} files · {(files.reduce((s, f) => s + f.size, 0) / 1024 / 1024).toFixed(1)} MB total
+              </div>
+            )}
+          </div>
+        )}
+
+        <div style={{ marginTop: 14, border: "1px solid #dadada", borderRadius: 4, overflow: "hidden" }}>
+          <div
+            onClick={() => setVocabOpen(v => !v)}
+            style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 14px", cursor: "pointer", background: "#fafafa" }}
+          >
+            <span style={{ fontSize: 12, fontWeight: 500, color: "#555" }}>Vocabulary</span>
+            <span style={{ fontSize: 11, color: "#aaa" }}>
+              {boostWords.split('\n').filter(w => w.trim()).length} words {vocabOpen ? "▲" : "▼"}
+            </span>
+          </div>
+          {vocabOpen && (
+            <div style={{ padding: "8px 14px", borderTop: "1px solid #dadada" }}>
+              <textarea
+                value={boostWords}
+                onChange={e => setBoostWords(e.target.value)}
+                rows={10}
+                style={{
+                  width: "100%", fontSize: 13, fontFamily: "'Public Sans', Arial, sans-serif",
+                  border: "1px solid #b0b0b0", borderRadius: 3, padding: "8px 10px",
+                  boxSizing: "border-box", resize: "vertical", lineHeight: 1.6,
+                  color: "#333", background: "white"
+                }}
+              />
+              <div style={{ fontSize: 11, color: "#aaa", marginTop: 4 }}>One word or phrase per line · improves transcription accuracy</div>
+            </div>
+          )}
+        </div>
+
+        {(() => {
+          // Once transcription finishes, the same button opens the review; choosing new files brings Transcribe back
+          if (status === "done" && jobId) {
+            return (
+              <button onClick={() => openReview(jobId)}
+                style={{
+                  width: "100%", padding: 13, marginTop: 14, borderRadius: 4, border: "none",
+                  background: "#1a4480", color: "white",
+                  fontFamily: "'Public Sans', Arial, sans-serif", fontSize: 15, fontWeight: 500, cursor: "pointer"
+                }}>
+                Review transcript →
+              </button>
+            )
+          }
+          const busy = uploading || status === "pending" || status === "transcribing"
+          const disabled = !files.length || busy
+          return (
+            <button onClick={handleUpload} disabled={disabled}
+              style={{
+                width: "100%", padding: 13, marginTop: 14, borderRadius: 4, border: "none",
+                background: disabled ? "#f0f0f0" : "#1a4480",
+                color: disabled ? "#aaa" : "white",
+                fontFamily: "'Public Sans', Arial, sans-serif", fontSize: 15, fontWeight: 500,
+                cursor: disabled ? "not-allowed" : "pointer"
+              }}>
+              {uploading ? "Uploading…" : "Transcribe"}
+            </button>
+          )
+        })()}
+
+        {status && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 4, marginTop: 10, background: statusBg[status], color: statusColor[status], fontSize: 13 }}>
+            <div style={{ width: 7, height: 7, borderRadius: "50%", background: statusColor[status], flexShrink: 0 }} />
+            {status === "done"
+              ? "Transcription complete."
+              : status === "error" ? `Error: ${error}`
+              : `Status: ${status}…`
+            }
+          </div>
+        )}
       </div>
 
-      {uploadOpen && <UploadWindow upload={upload} destination={destination} onReview={openReview} onClose={() => setUploadOpen(false)} />}
+      {jobs.length > 0 && (
+        <div style={{ background: "white", border: "1px solid #c9c9c9", borderRadius: 4, overflow: "hidden" }}>
+          <div style={{ padding: "10px 16px", borderBottom: "1px solid #f0f0f0" }}>
+            <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.07em", textTransform: "uppercase", color: "#aaa" }}>
+              Jobs
+            </span>
+          </div>
+          {jobs.map((job, i) => (
+            <div key={job.id} style={{
+              display: "grid", gridTemplateColumns: "1fr 80px 80px auto 28px",
+              gap: 12, padding: "10px 16px", alignItems: "center",
+              borderBottom: i < jobs.length - 1 ? "1px solid #f0f0f0" : "none",
+              background: i % 2 === 0 ? "white" : "#fafafa"
+            }}>
+              {renamingJob?.id === job.id ? (
+                <input
+                  autoFocus
+                  value={renamingJob.name}
+                  onChange={e => setRenamingJob({ id: job.id, name: e.target.value })}
+                  onFocus={e => e.target.select()}
+                  onBlur={saveJobName}
+                  onKeyDown={e => {
+                    if (e.key === "Enter") e.target.blur()
+                    if (e.key === "Escape") { renameCancelledRef.current = true; e.target.blur() }
+                  }}
+                  style={{
+                    fontSize: 13, padding: "2px 6px", margin: "-3px 0", minWidth: 0,
+                    borderRadius: 3, border: "1.5px solid #1a4480", outline: "none", color: "#222"
+                  }}
+                />
+              ) : (
+                <span
+                  onDoubleClick={() => setRenamingJob({ id: job.id, name: job.filename })}
+                  title="Double-click to rename"
+                  style={{ fontSize: 13, color: "#222", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "text" }}
+                >
+                  {job.filename}
+                </span>
+              )}
+              <span style={{ fontSize: 12, color: "#888" }}>{formatDuration(job.audio_duration_ms)}</span>
+              <span style={{ fontSize: 12, color: "#888" }}>{formatDate(job.created_at)}</span>
+              {job.status === "done"
+                ? <button
+                    onClick={() => openReview(job.id)}
+                    style={{
+                      fontSize: 12, padding: "4px 12px", borderRadius: 3,
+                      border: `1px solid ${job.audio_available ? "#1a4480" : "#b0b0b0"}`,
+                      background: "white",
+                      color: job.audio_available ? "#1a4480" : "#aaa",
+                      cursor: "pointer"
+                    }}
+                  >
+                    {job.audio_available ? "Review" : "Review (no audio)"}
+                  </button>
+                : <span style={{
+                    fontSize: 11, padding: "3px 8px", borderRadius: 4, fontWeight: 500,
+                    background: job.status === "error" ? "#FCEBEB" : "#e7ecf1",
+                    color: job.status === "error" ? "#A32D2D" : "#1a4480"
+                  }}>
+                    {job.status}
+                  </span>
+              }
+              <div style={{ position: "relative" }}>
+                <button onClick={() => setJobMenu(jobMenu === job.id ? null : job.id)} title="Transcript options"
+                  style={{ border: "1px solid #e0e0e0", background: "white", borderRadius: 3, color: "#888", cursor: "pointer", width: 28, height: 24 }}>⋯</button>
+                {jobMenu === job.id && (
+                  <>
+                    <div style={{ position: "fixed", inset: 0, zIndex: 9 }} onClick={() => setJobMenu(null)} />
+                    <div style={{ position: "absolute", right: 0, top: 28, zIndex: 10, background: "white", border: "1px solid #b0b0b0", borderRadius: 4, boxShadow: "0 4px 12px rgba(0,0,0,0.08)", padding: "4px 0", minWidth: 120 }}>
+                      <button onClick={() => { setJobMenu(null); setRenamingJob({ id: job.id, name: job.filename }) }} style={jobMenuItem}>Rename</button>
+                      <button onClick={() => { setJobMenu(null); deleteJob(job) }} style={{ ...jobMenuItem, color: "#ef4444" }}>Delete</button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      </div>
 
       <SiteFooter />
     </div>
